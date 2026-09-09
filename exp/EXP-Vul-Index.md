@@ -8,7 +8,7 @@
 | 组件 | 代表漏洞 | 识别特征 | 利用入口 |
 | --- | --- | --- | --- |
 | Shiro | Shiro-550 硬编码密钥反序列化；Shiro-721 Padding Oracle | Cookie 含 `rememberMe` | [ShiroExploit](https://github.com/feihong-cs/ShiroExploit-Deprecated)、[shiro-exploit](https://github.com/Ares-X/shiro-exploit)；原理见 [EXP-Java-Unserialize](./EXP-Java-Unserialize.md) |
-| Fastjson | autotype 反序列化（多版本绕过链） | JSON 接口、报错含 `com.alibaba.fastjson` | [FastjsonExploit](https://github.com/c0ny1/FastjsonExploit)、[姿势集合](https://github.com/safe6Sec/Fastjson) |
+| Fastjson | autotype 反序列化（多版本绕过链） | JSON 接口、报错含 `com.alibaba.fastjson` | [FastjsonExploit](https://github.com/c0ny1/FastjsonExploit)、[姿势集合](https://github.com/safe6Sec/Fastjson)；原理与 poc 见 [EXP-Java-Unserialize](./EXP-Java-Unserialize.md) |
 | Log4j2 | CVE-2021-44228 JNDI 注入（Log4Shell） | 参数回显进日志（UA、Referer、表单字段） | JNDI 利用见 [EXP-Java-Unserialize](./EXP-Java-Unserialize.md) |
 | Spring | Spring4Shell（CVE-2022-22965）、SpEL 注入 | Spring Boot、报错含 `org.springframework` | [EXP-SPEL-Injection](./EXP-SPEL-Injection.md)、[SpringBootVulExploit](https://github.com/LandGrey/SpringBootVulExploit) |
 | Struts2 | S2-045/046/057/061 OGNL RCE | `.action`/`.do` 后缀、报错含 OGNL | [EXP-OGNL-Injection](./EXP-OGNL-Injection.md)、[Struts2-Scan](https://github.com/HatBoy/Struts2-Scan) |
@@ -19,7 +19,7 @@
 | Weblogic | T3/IIOP 反序列化（CVE-2015-4852 起系列）、CVE-2020-14882 | 7001 端口、`/console` | 工具：woodpecker、WeblogicScan |
 | JBoss | JMXInvokerServlet 反序列化、未授权部署 | 8080、`/jmx-console` | 老牌靶场常客 |
 | Tomcat | AJP 文件包含（CVE-2020-1938）、弱口令部署 war、PUT 上传（CVE-2017-12615） | 8009 AJP 端口、`/manager/html` | 配 [EXP-Upload-JSP](./EXP-Upload-JSP.md) |
-| Nginx | 解析漏洞（老）、配置错误导致的目录穿越、CRLF | Server 头 | 多为配置问题而非 CVE |
+| Nginx | 解析漏洞（老）、配置错误导致的目录穿越、CRLF | Server 头 | 多为配置问题而非 CVE；CRLF 利用见 [EXP-CRLF](./EXP-CRLF.md)，alias 穿越见 [EXP-FileRead](./EXP-FileRead.md) |
 | IIS | PUT 写文件（老 IIS6）、解析漏洞（`;.asp`、`/x.asp/`） | Server 头、短文件扫描 | 结合上传篇 |
 
 ## PHP 框架与 CMS

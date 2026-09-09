@@ -155,6 +155,145 @@ Content-Type: image/jpeg
 - 是否会被前端直接渲染
 - 是否会被下游服务再次处理
 
+## .htaccess 完整利用
+`.htaccess` 是 Apache 的目录级配置文件，只要满足以下前提，上传它就等于拿到了该目录内的“改配置权”：
+- Web 服务器为 Apache，且 PHP 以 mod_php（模块）方式运行
+- 主配置 `httpd.conf` 中对应目录设置了 `AllowOverride All`（虚拟主机/共享主机常见）
+- 上传点允许写入 `.htaccess`（黑名单通常只拦脚本后缀，容易放过它）
+
+三种主流写法：
+
+```apache
+# 写法一：让整个目录及子目录的 .jpg 都按 PHP 解析
+AddType application/x-httpd-php .jpg
+
+# 写法二：仅让匹配的文件按 PHP 解析，影响面最小（推荐）
+<FilesMatch "shell.jpg">
+SetHandler application/x-httpd-php
+</FilesMatch>
+
+# 写法三：PHP 模块指令，让目录下所有 PHP 文件执行前先包含 shell.jpg（PHP 5.x 常用）
+php_value auto_prepend_file shell.jpg
+```
+
+利用流程：
+1. 先上传写好的 `.htaccess`
+2. 再上传内容为 PHP 代码、文件名为 `shell.jpg` 的文件
+3. 访问 `shell.jpg`（写法三则访问目录内任意 `.php` 文件），代码执行
+
+注意事项：
+- `AddHandler php5-script .php5` 一类写法已过时（PHP 7 后 handler 名称变化），实战以上面三种为主
+- `php_value` 只在 mod_php 下生效，php-fpm / fastcgi 环境下无效
+- Nginx、IIS 不读取 `.htaccess`，该思路仅限 Apache
+
+## 图片马制作与利用
+图片马 = 正常图片头 + 脚本代码，用于骗过“只检查文件头 / 图片合法性”的校验。
+
+制作命令：
+
+```powershell
+# Windows：/b 按二进制拼接图片，/a 按文本追加脚本
+copy 1.jpg/b + shell.php/a shell.jpg
+```
+
+```bash
+# Linux：直接拼接
+cat 1.jpg shell.php > shell.jpg
+```
+
+一句话提醒：图片马本身永远不会被执行，单独访问图片只是显示或下载。它必须配合以下入口之一才成立：
+- 文件包含漏洞：`include($_GET['file'])` → `?file=upload/shell.jpg`
+- 解析漏洞：Nginx 畸形 URL、`1.jpg/.php`、Apache 多后缀、IIS 6.0 解析（见下节）
+- 配置引导：`.htaccess` / `.user.ini` 把图片“变成”脚本
+
+## 解析漏洞具体案例
+### 1. Nginx CVE-2013-4547 畸形 URL 解析
+- 影响版本：Nginx 0.8.41 ~ 1.5.6（官方修复于 1.4.4 / 1.5.7）
+- 原理：URI 中出现未转义空格时，Nginx 解析请求行出错并截断，最终把 `shell.jpg` 当作 `.php` 脚本交给 fastcgi
+- 畸形 URL：`shell.jpg\x20\x00.php`（空格 + 空字节 + `.php`）
+
+报文示例（Burp Hex 视图下在空格 `20` 后插入 `00`）：
+
+```http
+GET /upload/shell.jpg .php HTTP/1.1
+Host: target.com
+```
+
+十六进制实际为：
+
+```
+GET /upload/shell.jpg\x20\x00.php HTTP/1.1
+```
+
+上传图片马 `shell.jpg` 后，按畸形 URL 访问即可让其中 PHP 代码执行。
+
+### 2. Nginx + php-fpm 路径解析（fastcgi_split_path_info）
+- 利用形式：`/upload/1.jpg/.php`
+- 原理：配置不当时（`cgi.fix_pathinfo=1`），PHP 找不到 `.php` 文件会向前回溯，最终把 `1.jpg` 当 PHP 执行。典型错误配置：
+
+```nginx
+location ~ \.php$ {
+    fastcgi_split_path_info ^(.+\.php)(/.+)$;
+    # 缺少 try_files 校验，直接把 URI 交给 php-fpm
+}
+```
+
+- phpstudy 旧版集成环境（2014~2018）曾大面积默认存在，是 CTF 高频考点
+
+### 3. Apache 多后缀解析
+- 利用形式：`shell.php.xxx`
+- 原理：Apache 识别文件类型时从右向左逐个匹配后缀，遇到不认识的 `.xxx` 继续向左，直到命中 `php`，最终按 PHP 解析
+- 前提：`AddHandler` / `AddType` 类配置（mod_php 环境常见），并非所有 Apache 配置都成立
+
+### 4. IIS 6.0 解析（经典历史漏洞）
+- 分号截断：`x.asp;.jpg` —— IIS 6.0 忽略分号后内容，按 `x.asp` 解析
+- 目录解析：`/x.asp/1.jpg` —— 目录名带 `.asp` 时，目录下所有文件按 ASP 解析
+- 常配合 WebDAV 的 PUT / MOVE 方法直接写入或改名文件，形成组合利用
+
+### 5. .user.ini 利用
+- 前提：PHP 以 fastcgi / cgi 方式运行（nginx + php-fpm 常见），PHP >= 5.3
+- 原理：`.user.ini` 是目录级 PHP 配置，目录下任意 PHP 文件执行前会先按 `auto_prepend_file` 包含指定文件
+
+```ini
+auto_prepend_file=shell.jpg
+```
+
+- 利用步骤：
+  1. 上传 `.user.ini`（内容如上）到目标目录
+  2. 上传含 PHP 代码的 `shell.jpg` 到同一目录
+  3. 访问该目录下任意已存在的 `.php` 文件（如 `index.php`），`shell.jpg` 被自动包含执行
+- 限制：目标目录必须存在可访问的 PHP 文件，否则没有触发点
+
+## upload-labs 靶场指引
+[upload-labs](https://github.com/c0ny1/upload-labs) 是最经典的文件上传靶场，共 20 关，覆盖黑盒绕过与白盒审计两条主线。
+
+环境要求一句话：推荐 PHP 5.2.17 + Apache（module 模式）+ Windows，其中 Pass-19 需要 Linux 环境；缺少 php_gd2 / php_exif 组件会导致部分关卡无法复现。
+
+| 关卡 | 考点（一句话） |
+| --- | --- |
+| Pass-01 | 前端 JS 校验——禁用 JS 或抓包直接改后缀 |
+| Pass-02 | MIME 校验——抓包把 Content-Type 改成 image/jpeg |
+| Pass-03 | 黑名单——php 被禁，换 phtml / php3 / php4 / php5 等可解析后缀 |
+| Pass-04 | 黑名单全封——上传 .htaccess 让图片按 PHP 解析 |
+| Pass-05 | 黑名单——大小写绕过（shell.pHp） |
+| Pass-06 | 黑名单——Windows 文件名末尾空格（"shell.php "） |
+| Pass-07 | 黑名单——Windows 文件名末尾点（"shell.php."） |
+| Pass-08 | 黑名单——NTFS 数据流（"shell.php::$DATA"） |
+| Pass-09 | 黑名单——点+空格+点组合（"shell.php. ."，deldot 只去一层） |
+| Pass-10 | 黑名单——双写绕过（"shell.pphphp"，str_replace 只替换一次） |
+| Pass-11 | 白名单——GET 型 %00 截断保存路径（PHP < 5.3.4） |
+| Pass-12 | 白名单——POST 型 0x00 二进制截断保存路径（PHP < 5.3.4） |
+| Pass-13 | 白名单——文件头检测，GIF89a 开头图片马 |
+| Pass-14 | 白名单——getimagesize() 校验，图片马 |
+| Pass-15 | 白名单——exif_imagetype() 校验，图片马 |
+| Pass-16 | 白名单——二次渲染绕过（GIF 找保留区 / PNG 写 IDAT / JPG 难度最高） |
+| Pass-17 | 白名单——条件竞争（上传后校验删除前的访问窗口） |
+| Pass-18 | 白名单——条件竞争 + Apache 多后缀解析（shell.php.xxx） |
+| Pass-19 | 白名单——move_uploaded_file 特性，save_path 可控用 "shell.php/." 截断（需 Linux） |
+| Pass-20 | 白名单——数组验证绕过，save_name[] 数组传参使 end()/reset() 取值不一致 |
+
+刷关建议：01~10 走黑名单/黑盒思路，11~20 走白名单/白盒审计思路；配合本文「.htaccess 完整利用」「图片马制作与利用」「解析漏洞具体案例」三节食用效果更佳。
+
 ## 实战排查思路
 ### 1. 先看上传后文件去向
 重点确认：
@@ -206,3 +345,6 @@ Content-Type: image/jpeg
 
 ## Reference
 - [浅析文件上传漏洞](https://xz.aliyun.com/t/7365)
+- [upload-labs 文件上传靶场（c0ny1）](https://github.com/c0ny1/upload-labs)
+- [wonderkun/CTF 仓库](https://github.com/wonderkun/CTF)
+- [Upload Attack Framework（CasperKid 经典上传攻击框架 paper）](https://github.com/UniSharp/laravel-filemanager/files/1107623/Upload_Attack_Framework.1.pdf)

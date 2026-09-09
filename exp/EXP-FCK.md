@@ -187,3 +187,9 @@ FCKeditor 已属于高风险老组件，优先替换。
 - 重点关注 `CurrentFolder`、`FileUpload`、`CreateFolder`
 - 结合后端环境测试 `php/aspx/jsp/asp` 利用链
 - 若发现 FCKeditor，优先级应明显提高
+
+## Reference
+- [FCKeditor 官方历史版本归档](https://ckeditor.com/old/)
+- [FCKeditor 漏洞利用总结（先知社区）](https://xz.aliyun.com/t/3726)
+- [FCKeditor 漏洞收集（GitHub）](https://github.com/wwl012345/Fckeditor-exp)
+- [CKEditor 安全公告（继任者）](https://ckeditor.com/blog/)

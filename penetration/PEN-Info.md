@@ -114,8 +114,54 @@ intitle:Phantom Hackers.PH intext:password filetype:php
 - 模板注入
 - 模板管理
 
-## 0x04 注意事项
+## 0x04 现代信息收集工具链
+> 0x02 的 GoogleHack/Zoomeye 思路至今有效，但主战场已换到 fofa/鹰图/Shodan 等测绘平台 + 自动化子域工具链。
+
+### 1. fofa / 鹰图语法速查
+```text
+domain="target.com"
+cert="target.com"           # 证书搜索
+body="xxx" && title="后台"
+icon_hash="xxx"             # favicon定位（绕CDN找真实IP）
+app="Apache-Shiro" && country="CN"
+host="target.com" && status_code="200"
+region="beijing" && port="8080"
+```
+
+- shodan：`ssl.cert.subject.CN:"target.com"`、`http.title:"dashboard"`
+- zoomeye：`app:"apache" +country:"CN"`
+- 鹰图（奇安信 HUNTER）：`domain.suffix="target.com"`、`web.title="后台"`
+
+### 2. 子域名枚举工具链
+- subfinder：被动枚举，`subfinder -d target.com -silent`
+- [OneForAll](https://github.com/shmilylty/OneForAll)：`python oneforall.py --target target.com run`，多引擎+爆破+接管检测一把梭
+- crt.sh 证书透明度：`https://crt.sh/?q=%25.target.com`
+- httpx 存活验证联动：`subfinder -d target.com -silent | httpx -title -tech-detect -status-code`
+
+### 3. JS 信息分析
+- [JSFinder](https://github.com/Threezh1/JSFinder)：从页面 JS 中提取 URL/API 端点，找隐藏接口与后台
+- [LinkFinder](https://github.com/GerbenJavado/LinkFinder)：`python linkfinder.py -i https://target.com -d -o cli`，正则提取端点
+- source map 泄露：探测 `.js.map`（如 `app.js.map`），可完整还原源码（原始路径、注释、密钥）
+- JS 中的 AK/SK、API Key、JWT secret 等密钥泄露衔接 [EXP-InfoLeak](../exp/EXP-InfoLeak.md)
+
+### 4. Whois 与备案
+- `whois target.com`：注册人、邮箱、NS、注册商；注册邮箱可反查同一人名下其他域名
+- ICP 备案查询：工信部 `beian.miit.gov.cn` / `beianx.cn`，确认主体公司后以主体名再扩资产
+- 域名/解析历史：SecurityTrails（子域与解析记录历史）、微步在线（ThreatBook）
+- 邮箱反查：hunter.io 按域名搜关联邮箱，用于钓鱼与资产归属确认
+
+### 5. 与 PEN-Scanner 的分工
+本文只管"收集"（找目标、找入口、找泄露），端口/服务/漏洞级的批量扫描见 [PEN-Scanner](./PEN-Scanner.md)。
+
+## 0x05 注意事项
 
 - 信息收集阶段的重点是缩小突破面，不是把所有目标都扫一遍。
 - 先做相关性判断，再做漏洞验证，能减少无效目标和噪声。
 - 搜索引擎结果适合做入口发现，版本识别和漏洞判断仍要靠二次验证。
+
+## Ref
+- [fofa 查询语法官方文档](https://fofa.info/)
+- [subfinder](https://github.com/projectdiscovery/subfinder)
+- [OneForAll](https://github.com/shmilylty/OneForAll)
+- [JSFinder](https://github.com/Threezh1/JSFinder)
+- [LinkFinder](https://github.com/GerbenJavado/LinkFinder)

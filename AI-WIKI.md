@@ -22,7 +22,7 @@
 | CSRF | 跨站请求伪造、请求伪造、登录 CSRF | `./exp/EXP-CSRF.md` | `SameSite` `Origin` `Token` `Fetch Metadata` |
 | SSRF | 服务端请求伪造、内网探测、云 metadata | `./exp/EXP-SSRF.md` | `回显` `盲打` `gopher` `file` |
 | SQLi | SQL 注入、数据库注入、盲注、报错注入 | `./exp/EXP-SQLi-MySQL.md` | `MySQL` `Oracle` `MSSQL` `OOB` |
-| SSTI | 模板注入、服务端模板注入 | `./exp/EXP-SSTI-ALL.md` | `Jinja2` `Twig` `Freemarker` `Smarty` |
+| SSTI | 模板注入、服务端模板注入 | `./exp/EXP-SSTI-ALL.md` | `Jinja2` `Twig` `Freemarker` `Smarty` `EJS` `Velocity` `Thymeleaf` |
 | 命令执行 | RCE、命令注入、代码执行 | `./exp/EXP-CI-PHP.md` `./exp/EXP-CI-Java.md` | `PHP` `Java` `Runtime.exec` |
 | XPath 注入 | XML 路径注入 | `./exp/EXP-XPath.md` | `布尔盲注` `认证绕过` |
 | XXE | 外部实体注入、XML 外部实体 | `./exp/EXP-XXE.md` | `文件读取` `SSRF` `DTD` |
@@ -42,6 +42,11 @@
 | CORS / JSONP | 跨域劫持、Origin 反射 | `./exp/EXP-CORS.md` | `ACAO` `credentials` `callback` |
 | 信息泄露 | 源码泄露、git 泄露、调试信息 | `./exp/EXP-InfoLeak.md` | `.git` `.env` `swagger` `heapdump` |
 | 业务逻辑 | 条件竞争、密码重置、支付篡改 | `./exp/EXP-Logic.md` | `race condition` `越权` `并发` |
+| GraphQL | 内省、GraphQL 注入、mutation 越权 | `./exp/EXP-GraphQL.md` | `introspection` `alias` `批量攻击` |
+| 缓存投毒 | Web Cache Poisoning、缓存欺骗、Cache Deception | `./exp/EXP-Cache-Poisoning.md` | `unkeyed` `X-Cache` `缓存键` |
+| HPP | HTTP 参数污染、重复参数、参数污染 | `./exp/EXP-HPP.md` | `取值策略` `WAF 绕过` `参数重复` |
+| SSTI-Java | Java 模板注入、Freemarker/Velocity/Thymeleaf | `./exp/EXP-SSTI-Java.md` | `Execute` `__${}__` `TemplateClassResolver` |
+| SSTI-Node | Node.js 模板注入、EJS/Pug/Nunjucks/Handlebars | `./exp/EXP-SSTI-Node.md` | `outputFunctionName` `renderString` `沙箱逃逸` |
 | 认证与会话 | Cookie、Session、OAuth、SSO | `./vul/VUL-Auth-Session.md` | `SameSite` `HttpOnly` `会话固定` |
 | 密码学误用 | ECB、CBC、Padding Oracle、弱随机 | `./vul/VUL-Crypto.md` | `长度扩展` `比特翻转` `硬编码密钥` |
 

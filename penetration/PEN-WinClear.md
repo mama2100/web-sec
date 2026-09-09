@@ -36,6 +36,13 @@ Clear-EventLog -LogName Security
 - **暂停记录**：`Invoke-Phant0m` 找到并挂起 EventLog 服务线程，之后的操作不落地——比"清"更干净
 - 注意 1102/104 事件本身就是强告警信号，清完日志最好伪造/覆盖时间线
 
+工具链接：
+
+- EventCleaner（单条删除 + 暂停日志线程）：https://github.com/QAX-A-Team/EventCleaner
+  - 单条删除：`EventCleaner.exe clean 16`（删除指定记录号；配套 `suspender` 暂停日志线程、`normal` 恢复）
+- Invoke-Phant0m（杀 EventLog 服务线程）：https://github.com/hlldz/Invoke-Phant0m
+  - 用法：`powershell -exec bypass -c "Import-Module .\Invoke-Phant0m.ps1; Invoke-Phant0m"`
+
 ## 0x04 RDP 与远程登录痕迹
 ```powershell
 # RDP 连接记录（按用户）
@@ -65,6 +72,33 @@ reg delete "HKCU\Software\Microsoft\Terminal Server Client\Default" /f
 meterpreter > timestomp C:\tools\nc.exe -f C:\Windows\System32\kernel32.dll
 ```
 
+### USN Journal（NTFS 变更日志）
+
+取证原理一句话：USN Journal 是 NTFS 卷级变更日志，持续记录文件的创建/删除/重命名/写入，**文件删了日志还在**，蓝队用它还原已删文件名与时间线。
+
+```powershell
+# 查询 C 盘 USN Journal 状态
+fsutil usn queryjournal c:
+
+# 读取具体记录（Win10 1607+）
+fsutil usn readjournal c:
+
+# 删除 C 盘 USN Journal（/D 等待删除完成）
+fsutil usn deletejournal /D c:
+```
+
+### DNS 缓存与执行痕迹
+
+```powershell
+# 查看本机 DNS 缓存——暴露最近解析过的域名（C2、下载源、内网主机名）
+ipconfig /displaydns
+
+# 清除 DNS 缓存（cmd 等价：ipconfig /flushdns）
+Clear-DnsClientCache
+```
+
+- DrWatson / WER 崩溃转储：进程崩溃时 Windows Error Reporting 会在 `%LOCALAPPDATA%\CrashDumps` 落 `.dmp` 文件，包含崩溃瞬间的进程内存（工具路径、配置、密钥都可能在内），落地工具崩溃后记得检查这里。
+
 ## 0x06 其他痕迹点
 - 计划任务：`schtasks /query`，删自建的
 - 服务：`sc query`，删自建的（7045 事件记得处理）
@@ -79,3 +113,5 @@ meterpreter > timestomp C:\tools\nc.exe -f C:\Windows\System32\kernel32.dll
 
 ## 0x08 参考
 - [Windows 取证分析常用痕迹点](https://github.com/uknowsec/Active-Directory-Pentest-Notes)
+- [EventCleaner - 事件日志单条删除/线程挂起](https://github.com/QAX-A-Team/EventCleaner)
+- [Invoke-Phant0m - 终止 EventLog 服务线程](https://github.com/hlldz/Invoke-Phant0m)

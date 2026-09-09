@@ -10,12 +10,12 @@
 
 ## 信息收集与扫描
 
-- [PEN-Info.md](./PEN-Info.md)：外网信息收集与目标扩展思路。
+- [PEN-Info.md](./PEN-Info.md)：外网信息收集思路（含 fofa/鹰图语法、子域名枚举、JS 信息分析）。
 - [PEN-Scanner.md](./PEN-Scanner.md)：端口扫描、指纹识别和目录爆破。
 
 ## 会话建立与代理转发
 
-- [PEN-ReShell.md](./PEN-ReShell.md)：反弹 Shell、正向 Shell、TTY 升级。
+- [PEN-ReShell.md](./PEN-ReShell.md)：反弹/正向 Shell、多语言变体、TTY 升级（Python3）。
 - [PEN-ssh.md](./PEN-ssh.md)：SSH 本地转发、远程转发、动态代理。
 - [PEN-Tun2socks.md](./PEN-Tun2socks.md)：Windows 下使用 tun2socks 接管流量。
 - [PEN-Openwrt.md](./PEN-Openwrt.md)：OpenWrt 网关代理方案。
@@ -23,29 +23,29 @@
 
 ## 凭证与权限提升
 
-- [PEN-GetHash.md](./PEN-GetHash.md)：Windows Hash 与明文凭证获取。
-- [PEN-GetHash-Linux.md](./PEN-GetHash-Linux.md)：Linux 凭证与口令窃取思路。
-- [PEN-Setuid-Linux.md](./PEN-Setuid-Linux.md)：Linux SUID 提权。
-- [PEN-Linux-LPE.md](./PEN-Linux-LPE.md)：Linux 常见本地提权枚举与利用方向。
+- [PEN-GetHash.md](./PEN-GetHash.md)：Windows Hash 获取（mimikatz/ntdsutil/secretsdump/RunAsPPL/NTLM Relay）。
+- [PEN-GetHash-Linux.md](./PEN-GetHash-Linux.md)：Linux 凭证获取（shadow 破解/SSH 私钥/配置搜索/内存提取）。
+- [PEN-Setuid-Linux.md](./PEN-Setuid-Linux.md)：Linux SUID 原理与经典利用命令。
+- [PEN-Linux-LPE.md](./PEN-Linux-LPE.md)：Linux 提权枚举（LinPEAS/pspy）、经典内核漏洞清单（DirtyCow/DirtyPipe/PwnKit 等）。
 
 ## 域渗透
 
-- [PEN-BloodHound.md](./PEN-BloodHound.md)：域信息收集与 BloodHound 图谱分析。
-- [PEN-Kerberos.md](./PEN-Kerberos.md)：Kerberos 认证攻击（Roasting、票据伪造、委派）。
+- [PEN-BloodHound.md](./PEN-BloodHound.md)：域信息收集、BloodHound 图谱分析与自定义 Cypher 查询。
+- [PEN-Kerberos.md](./PEN-Kerberos.md)：Kerberos 攻击全集（Roasting/票据伪造/委派/MS14-068/ADCS/密码喷洒/NTLM Relay）。
 
 ## 云上攻防
 
-- [PEN-Cloud.md](./PEN-Cloud.md)：AKSK 利用、元数据服务、对象存储攻击面。
+- [PEN-Cloud.md](./PEN-Cloud.md)：AKSK 利用、元数据服务、对象存储、Kubernetes 攻击面。
 
 ## 痕迹与运维辅助
 
-- [PEN-LinuxClear.md](./PEN-LinuxClear.md)：Linux 登录痕迹与 History 处理。
-- [PEN-WinClear.md](./PEN-WinClear.md)：Windows 事件日志、RDP 与执行痕迹清理。
-- [PEN-WinCmd.md](./PEN-WinCmd.md)：Windows 常用系统与域渗透命令。
-- [PEN-MSF.md](./PEN-MSF.md)：Metasploit 与 Meterpreter 常用命令。
+- [PEN-LinuxClear.md](./PEN-LinuxClear.md)：Linux 痕迹清理（日志/journal/auditd/history/时间戳），配套脚本 [logtamper.py](./logtamper.py)。
+- [PEN-WinClear.md](./PEN-WinClear.md)：Windows 事件日志、RDP、USN Journal 与执行痕迹清理。
+- [PEN-WinCmd.md](./PEN-WinCmd.md)：Windows 常用命令（cmd + PowerShell 对应）。
+- [PEN-MSF.md](./PEN-MSF.md)：Metasploit 与 Meterpreter（多平台载荷、migrate/hashdump/kiwi）。
 
 ## WebShell 与近源专题
 
-- [PEN-Webshell-Question.md](./PEN-Webshell-Question.md)：WebShell 命令执行异常排查。
-- [Webshell-Bypass.md](./Webshell-Bypass.md)：WebShell 免杀与流量规避思路速记。
+- [PEN-Webshell-Question.md](./PEN-Webshell-Question.md)：WebShell 命令执行异常排查与 disable_functions 绕过。
+- [Webshell-Bypass.md](./Webshell-Bypass.md)：WebShell 免杀实例（PHP/JSP）、流量特征对抗与落地检查清单。
 - [PEN-WiFi-Tool.md](./PEN-WiFi-Tool.md)：近源渗透硬件和随身 Wi-Fi 改造。

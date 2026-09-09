@@ -77,25 +77,32 @@ return render_template_string(template)
 很多业务为了灵活性，允许管理员配置模板片段，这类功能一旦权限边界不清，很容易演变成高危 SSTI。
 
 ## 常见模板引擎关注点
+> 各语言的详细 payload 与利用链见下方专篇。
 ### 1. Python
 - Jinja2
 - Tornado
 - Mako
+- 专篇：[SSTI -Python](./EXP-SSTI-Python.md)（现代 payload：`lipsum`/`cycler`/`__globals__` 链 + 绕过技巧 + 工具）
 
 ### 2. Java
 - Freemarker
 - Velocity
 - Thymeleaf
+- Pebble
+- 专篇：[SSTI -Java](./EXP-SSTI-Java.md)（Freemarker `Execute` 链、Velocity 反射链、Thymeleaf `__${}__` 预处理）
 
 ### 3. PHP
 - Twig
 - Smarty
+- Blade
+- 专篇：[SSTI -PHP](./EXP-SSTI-PHP.md)（Smarty `{if}` RCE、Twig `_self.env` 链与 map/filter 回调）
 
 ### 4. JavaScript / Node.js
 - Handlebars
 - EJS
 - Pug
 - Nunjucks
+- 专篇：[SSTI -Node.js](./EXP-SSTI-Node.md)（EJS `process.mainModule` 直达 RCE、Pug 缩进块注入、Handlebars 沙箱逃逸）
 
 不同引擎的表达式能力、对象访问方式和沙箱机制差异很大，利用方法不能直接照搬。
 

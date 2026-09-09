@@ -35,6 +35,9 @@
 | 文件读取 | 路径可控 + 未限制目录 | [EXP-FileRead](./exp/EXP-FileRead.md) | `目录穿越` `任意文件下载` `伪协议` |
 | NoSQL | 参数被解析为查询对象 | [EXP-NoSQL](./exp/EXP-NoSQL.md) | `$ne` `$regex` `$where` |
 | 请求走私 | 前后端 CL/TE 解析不一致 | [EXP-Request-Smuggling](./exp/EXP-Request-Smuggling.md) | `CL.TE` `TE.CL` `HTTP/2降级` |
+| GraphQL | 内省开放 + 接口拼装能力暴露 | [EXP-GraphQL](./exp/EXP-GraphQL.md) | `introspection` `alias` `mutation越权` |
+| 缓存投毒 | unkeyed 输入 + CDN 缓存键不完整 | [EXP-Cache-Poisoning](./exp/EXP-Cache-Poisoning.md) | `X-Cache` `unkeyed` `缓存欺骗` |
+| HPP | 参数重复提交 + 各层取值不一致 | [EXP-HPP](./exp/EXP-HPP.md) | `重复参数` `取值策略` `污染` |
 
 ## 使用建议
 - 做题或实战时，先定位“漏洞类别 -> 成立条件 -> 常见利用链 -> 防御点”。
@@ -69,6 +72,9 @@
     * [2.18 CRLF注入](#218-crlf注入)
     * [2.19 信息泄露](#219-信息泄露)
     * [2.20 业务逻辑漏洞](#220-业务逻辑漏洞)
+    * [2.21 GraphQL安全](#221-graphql安全)
+    * [2.22 缓存投毒与缓存欺骗](#222-缓存投毒与缓存欺骗)
+    * [2.23 HTTP参数污染(HPP)](#223-http参数污染hpp)
   * [0x03 代码审计篇(Audit)](#0x03-代码审计篇audit)
     * [3.1 PHP](#31-php)
     * [3.2 JAVA](#32-java)
@@ -174,6 +180,8 @@
 - [SSTI 总述](./exp/EXP-SSTI-ALL.md)
 - [SSTI -Python](./exp/EXP-SSTI-Python.md)
 - [SSTI -PHP](./exp/EXP-SSTI-PHP.md)
+- [SSTI -Java（Freemarker/Velocity/Thymeleaf/Pebble）](./exp/EXP-SSTI-Java.md)
+- [SSTI -Node.js（EJS/Pug/Nunjucks/Handlebars）](./exp/EXP-SSTI-Node.md)
 - [SSTI Payload @payloadbox](https://github.com/payloadbox/ssti-payloads)
 
 
@@ -246,6 +254,18 @@
 ### 2.20 业务逻辑漏洞
 > 条件竞争 / 验证码 / 密码重置 / 支付篡改
 - [业务逻辑漏洞利用](./exp/EXP-Logic.md)
+
+### 2.21 GraphQL安全
+> 内省 / mutation越权 / 别名批量攻击
+- [GraphQL 安全](./exp/EXP-GraphQL.md)
+
+### 2.22 缓存投毒与缓存欺骗
+> unkeyed输入 / X-Cache / 敏感页被缓存
+- [Web 缓存投毒与缓存欺骗](./exp/EXP-Cache-Poisoning.md)
+
+### 2.23 HTTP参数污染(HPP)
+> 参数重复提交 / 各层取值不一致 / 绕WAF与鉴权
+- [HTTP 参数污染（HPP）](./exp/EXP-HPP.md)
 
 ## 0x03 代码审计篇(Audit)
 
@@ -509,7 +529,3 @@
 - [HackMD markdown协同工具(Docker版)](https://hackmd.io/c/codimd-documentation/%2Fs%2Fcodimd-docker-deployment)
 > 简单，美观
 - [文件管理系统](https://github.com/filebrowser/filebrowser)
-## Other
-[toc目录生成工具](https://houbb.github.io/opensource/markdown-toc/)
-
-![Star History Chart](https://api.star-history.com/svg?repos=ReAbout/web-sec&type=Date)

