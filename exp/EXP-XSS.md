@@ -1,3 +1,11 @@
+---
+title: XSS 跨站脚本
+aliases: [Cross-site Scripting, 跨站脚本, 脚本注入, DOM XSS, CSTI]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # EXP手册-Cross-site scripting
 
 ## 一句话理解

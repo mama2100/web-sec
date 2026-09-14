@@ -1,3 +1,11 @@
+---
+title: 渗透测试笔记索引
+aliases: [渗透索引, 渗透笔记目录]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Penetration 笔记索引
 
 本目录用于整理渗透测试过程中常用的操作笔记、命令速查和环境搭建方法。文档统一采用以下结构：

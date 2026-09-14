@@ -1,3 +1,11 @@
+---
+title: SQL 注入与利用（MSSQL）
+aliases: [MSSQL 利用, xp_cmdshell, CLR, sa 提权]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # MSSQL SQL注入&漏洞利用
 
 ## 一句话理解

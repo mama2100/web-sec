@@ -1,3 +1,11 @@
+---
+title: 认证与会话机制
+aliases: [认证, 会话管理, Cookie, Session, OAuth, 会话固定]
+category: vul
+status: current
+updated: 2026-07
+---
+
 # 认证与会话机制（原理篇）
 
 ## 定位

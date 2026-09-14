@@ -1,3 +1,11 @@
+---
+title: 高版本 JDK 的 JNDI 注入绕过
+aliases: [JDK 限制绕过, 高版本 JNDI, BCEL, LDAP 本地工厂]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 绕过过高版本Jdk的限制进行Jndi注入利用
 
 ## 一句话理解

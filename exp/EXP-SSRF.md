@@ -1,3 +1,11 @@
+---
+title: SSRF 服务端请求伪造
+aliases: [Server-side Request Forgery, 服务端请求伪造, 内网探测, 云 metadata]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 后端安全-代码逻辑-SSRF
 
 ## 一句话理解

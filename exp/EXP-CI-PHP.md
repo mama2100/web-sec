@@ -1,3 +1,11 @@
+---
+title: 命令注入与代码执行（PHP）
+aliases: [Command Injection, RCE, 命令注入, 代码执行, disable_functions]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 命令注入&代码执行-PHP
 
 ## 一句话理解

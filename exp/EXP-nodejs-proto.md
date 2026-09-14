@@ -1,3 +1,11 @@
+---
+title: Node.js 原型链污染
+aliases: [Prototype Pollution, 原型污染, __proto__, merge 污染]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Javascript 原型链污染
 
 ## 一句话理解

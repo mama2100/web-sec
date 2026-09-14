@@ -1,3 +1,11 @@
+---
+title: 1day 组件漏洞速查表
+aliases: [1day 速查, 组件漏洞, nday, Shiro, Fastjson, Log4j2]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 漏洞利用索引（1day 速查表）
 
 ## 使用说明

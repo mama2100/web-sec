@@ -1,3 +1,11 @@
+---
+title: Java 反序列化漏洞
+aliases: [Java Deserialization, gadget 链, JNDI 注入, ysoserial, 内存马]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Java 反序列化漏洞利用
 
 ## 一句话理解

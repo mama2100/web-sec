@@ -1,3 +1,11 @@
+---
+title: Docker/K8s 容器逃逸
+aliases: [容器逃逸, Docker 逃逸, K8s 逃逸, privileged, docker.sock, hostPath]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 容器逃逸（Docker / Kubernetes）
 
 ## 一句话理解

@@ -1,3 +1,11 @@
+---
+title: HTTP 请求走私
+aliases: [Request Smuggling, CL.TE, TE.CL, H2 降级]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # HTTP 请求走私（HTTP Request Smuggling）
 
 ## 一句话理解

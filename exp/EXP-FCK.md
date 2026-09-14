@@ -1,3 +1,11 @@
+---
+title: FCKeditor 编辑器漏洞利用
+aliases: [FCKeditor, 编辑器漏洞, 历史组件]
+category: exp
+status: legacy
+updated: 2026-07
+---
+
 # FCKeditor 编辑器漏洞利用
 
 > n 年前的总结，但如果目标里真的还在跑 FCKeditor，这类组件依然值得优先尝试。

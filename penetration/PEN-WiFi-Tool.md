@@ -1,3 +1,11 @@
+---
+title: 近源渗透硬件改造
+aliases: [近源渗透, 随身 WiFi, 高通 410]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # 近源渗透硬件与随身 Wi-Fi 改造
 
 ## 0x01 概述

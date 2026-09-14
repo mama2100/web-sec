@@ -1,3 +1,11 @@
+---
+title: CORS 误配与 JSONP 劫持
+aliases: [CORS, JSONP 劫持, Origin 反射, 跨域误配]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # CORS 误配与 JSONP 劫持
 
 ## 一句话理解

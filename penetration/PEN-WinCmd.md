@@ -1,3 +1,11 @@
+---
+title: Windows 常用命令
+aliases: [Windows 命令, cmd, PowerShell 对照]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Windows 常用渗透命令速查
 
 ## 0x01 概述

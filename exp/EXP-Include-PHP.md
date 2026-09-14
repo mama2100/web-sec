@@ -1,3 +1,11 @@
+---
+title: PHP 文件包含漏洞
+aliases: [文件包含, LFI, RFI, 日志投毒, php://filter]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 包含漏洞 PHP
 
 ## 一句话理解

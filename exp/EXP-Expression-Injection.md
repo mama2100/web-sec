@@ -1,3 +1,11 @@
+---
+title: EL 表达式注入
+aliases: [EL 注入, Expression Language, 表达式注入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Java 表达式注入
 
 ## 一句话理解
@@ -55,6 +63,58 @@ Java 表达式注入是一个总称，指用户输入进入 OGNL、SpEL、JEXL�
 - ClassLoader
 
 风险会明显提高。
+
+## 注入家族分流决策树
+
+发现一个可疑注入点后，不要急着乱套 payload，先用试探表达式观察回显与报错，按下面的决策树快速分流，再跳到对应专篇深入：
+
+```text
+输入回显特征判断：
+├─ {{7*7}}=49 且报错含 Jinja2/Twig → SSTI（→ EXP-SSTI-Python/PHP）
+├─ ${7*7}=49 且Java栈 → EL/OGNL/SpEL 三选一：
+│   ├─ 报错含 javax.el / #{} → EL（→ 本文）
+│   ├─ Struts2/.action → OGNL（→ EXP-OGNL-Injection）
+│   └─ Spring/SpelExpressionParser → SpEL（→ EXP-SPEL-Injection）
+├─ 报错含 XPath/Invalid expression → XPath注入（→ EXP-XPath）
+├─ JSON深度嵌套后行为异常/merge类函数 → 原型链污染（→ EXP-nodejs-proto）
+└─ 模板报错含 freemarker/velocity → SSTI-Java（→ EXP-SSTI-Java）
+```
+
+分流三步：
+1. 先确认"算式被求值"（`7*7` 回显 `49`），排除普通字符串回显
+2. 再看报错指纹：异常类名、中间件、URL 后缀（`.action`、`.jsp`），锁定引擎
+3. 引擎不同，语法与利用链完全不同——分流对了再查对应 payload，不要乱枪打鸟
+
+分流去向（专篇入口）：
+
+| 分流结果 | 专篇 |
+| --- | --- |
+| SSTI（Python / PHP） | [EXP-SSTI-Python](./EXP-SSTI-Python.md) / [EXP-SSTI-PHP](./EXP-SSTI-PHP.md) |
+| JSP EL | 本文（见下文「JSP EL 注入」） |
+| OGNL | [EXP-OGNL-Injection](./EXP-OGNL-Injection.md) |
+| SpEL | [EXP-SPEL-Injection](./EXP-SPEL-Injection.md) |
+| XPath 注入 | [EXP-XPath](./EXP-XPath.md) |
+| 原型链污染 | [EXP-nodejs-proto](./EXP-nodejs-proto.md) |
+| SSTI-Java（FreeMarker/Velocity） | [EXP-SSTI-Java](./EXP-SSTI-Java.md) |
+
+### 定界符速查表（全语言视角）
+
+| 定界符 | 常见引擎 / 技术 |
+| --- | --- |
+| `{{ ... }}` | Jinja2、Twig、Handlebars |
+| `${ ... }` | EL、FreeMarker、JSP、JS 模板字面量 |
+| `#{ ... }` | EL、SpEL、Ruby 内插 |
+| `<%= ... %>` | ERB、EJS |
+| `#{7*7}` | Thymeleaf（消息/预处理表达式语境） |
+
+### 一步试探 payload 组
+
+```text
+{{7*7}} ${7*7} #{7*7} <%= 7*7 %> ${"\u0022".length()}
+```
+
+- 前四个是定界符探针：哪一段回显 `49`，就说明哪个引擎在求值你的输入
+- 最后一个是方法调用探针：`"\u0022"` 是双引号的 Unicode 转义写法（规避引号被过滤/转义），`.length()` 回显 `1` 说明 EL 不止能求值还能调方法——存在升级 RCE 的可能（见下文「JSP EL 注入」）
 
 ## 引擎识别（定界符速查）
 拿到可疑输入点后，优先注入不同定界符试探，观察求值结果或报错：

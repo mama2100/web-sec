@@ -1,3 +1,11 @@
+---
+title: 外网信息收集
+aliases: [信息收集, 外网信息收集, fofa, 子域名枚举, JS 分析]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # 渗透测试信息收集
 
 ## 0x01 概述

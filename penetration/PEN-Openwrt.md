@@ -1,3 +1,11 @@
+---
+title: OpenWrt 网关代理方案
+aliases: [OpenWrt, 网关代理, VMware]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # OpenWrt on VMware 网关方案
 
 ## 0x01 概述

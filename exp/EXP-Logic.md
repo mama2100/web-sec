@@ -1,3 +1,11 @@
+---
+title: 业务逻辑漏洞
+aliases: [业务逻辑, 条件竞争, 密码重置, 支付篡改, race condition]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 业务逻辑漏洞利用
 
 ## 一句话理解

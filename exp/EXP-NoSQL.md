@@ -1,3 +1,11 @@
+---
+title: NoSQL 注入
+aliases: [NoSQL 注入, MongoDB 注入, 操作符注入, $ne, $regex]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # NoSQL 注入（MongoDB 为主）
 
 ## 一句话理解

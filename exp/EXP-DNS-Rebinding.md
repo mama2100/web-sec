@@ -1,3 +1,11 @@
+---
+title: DNS Rebinding 重绑定攻击
+aliases: [DNS 重绑定, DNS Rebinding, 绕过 IP 校验, 打内网]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # DNS rebinding 攻击
 
 ## 一句话理解

@@ -1,3 +1,11 @@
+---
+title: Python 反序列化漏洞（pickle）
+aliases: [pickle, yaml.load, __reduce__, PVM]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Python 反序列化漏洞
 
 ## 一句话理解

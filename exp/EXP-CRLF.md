@@ -1,3 +1,11 @@
+---
+title: CRLF 注入与响应拆分
+aliases: [CRLF 注入, 响应拆分, %0d%0a, Set-Cookie 注入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # CRLF 注入与 HTTP 响应拆分
 
 ## 一句话理解

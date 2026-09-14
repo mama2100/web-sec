@@ -1,3 +1,11 @@
+---
+title: Webshell 免杀与 WAF 逃逸
+aliases: [Webshell 免杀, 流量对抗, WAF 逃逸]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # WebShell 免杀与流量规避速记
 
 ## 0x01 概述

@@ -1,3 +1,11 @@
+---
+title: .NET 反序列化漏洞
+aliases: [ViewState, Json.NET, BinaryFormatter, ysoserial.net, machineKey]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # .NET 反序列化漏洞利用
 
 ## 一句话理解

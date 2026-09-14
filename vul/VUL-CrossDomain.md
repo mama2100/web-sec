@@ -1,3 +1,11 @@
+---
+title: 跨域安全（SOP/CSP/JSONP）
+aliases: [同源策略, SOP, CSP, JSONP, 跨域]
+category: vul
+status: current
+updated: 2026-07
+---
+
 # 前端安全-跨域
 [toc]
 

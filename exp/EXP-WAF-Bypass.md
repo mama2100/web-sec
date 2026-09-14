@@ -1,3 +1,11 @@
+---
+title: WAF 识别与绕过
+aliases: [WAF 绕过, WAF 指纹, 分块传输, tamper, wafw00f]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # WAF 识别与绕过（WAF Fingerprint & Bypass）
 
 ## 一句话理解

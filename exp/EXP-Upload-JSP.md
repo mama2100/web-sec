@@ -1,3 +1,11 @@
+---
+title: 文件上传 WAF 绕过（JSP）
+aliases: [JSP 上传绕过, JSP 变形, 上传 WAF 对抗]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 文件上传漏洞绕过WAF-JSP
 
 ## 一句话理解

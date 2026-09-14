@@ -1,3 +1,11 @@
+---
+title: 缓存投毒与缓存欺骗
+aliases: [缓存投毒, Cache Poisoning, 缓存欺骗, unkeyed, X-Cache]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Web 缓存投毒与缓存欺骗（Cache Poisoning / Web Cache Deception）
 
 ## 一句话理解

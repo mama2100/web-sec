@@ -1,3 +1,11 @@
+---
+title: HTTP 参数污染（HPP）
+aliases: [HPP, 参数污染, 重复参数, 取值策略]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # HTTP 参数污染（HPP / HTTP Parameter Pollution）
 
 ## 一句话理解

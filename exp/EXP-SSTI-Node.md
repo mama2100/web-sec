@@ -1,3 +1,11 @@
+---
+title: SSTI 服务端模板注入（Node.js）
+aliases: [EJS, Pug, Nunjucks, Handlebars, Node 模板注入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Node.js 模板注入（SSTI）
 
 ## 一句话理解

@@ -1,3 +1,11 @@
+---
+title: 域信息收集与 BloodHound
+aliases: [BloodHound, 域信息收集, Cypher, AD 图谱]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # 域信息收集与 BloodHound
 
 ## 0x01 概述

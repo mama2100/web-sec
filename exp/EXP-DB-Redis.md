@@ -1,3 +1,11 @@
+---
+title: Redis 漏洞利用
+aliases: [Redis 利用, 未授权访问, 主从复制 RCE, crontab 写入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Redis 漏洞利用
 
 ## 一句话理解

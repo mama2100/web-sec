@@ -1,3 +1,11 @@
+---
+title: Kerberos 攻击
+aliases: [Kerberos 攻击, Kerberoasting, AS-REP Roasting, 委派, 黄金票据, 白银票据, ADCS, MS14-068]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Kerberos 认证攻击速查
 
 ## 0x01 概述

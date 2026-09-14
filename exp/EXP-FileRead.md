@@ -1,3 +1,11 @@
+---
+title: 任意文件读取与目录穿越
+aliases: [任意文件读取, 目录穿越, Path Traversal, 任意文件下载, 伪协议]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 任意文件读取与目录穿越
 
 ## 一句话理解
@@ -86,10 +94,54 @@ C:\Windows\win.ini
 | `/var/log/`、Tomcat 日志 | 找 session、后台路径、注入痕迹 |
 | `~/.ssh/id_rsa`、`~/.bash_history` | 直接登录、摸清运维习惯 |
 
+## Windows 路径速查清单
+
+目标是 IIS / ASP.NET 站时，把 Linux 的 `/etc/passwd` 换成下面这些：
+
+```text
+C:\inetpub\wwwroot\web.config          # IIS 站点配置（含 machineKey，拿到即可联动 .NET 反序列化打 ViewState）
+C:\Windows\System32\config\SAM         # 账户哈希库（需配合注册表 hive 提取，如 reg save）
+C:\Users\<user>\Desktop\flag.txt       # 常见 CTF flag 位置
+C:\inetpub\logs\LogFiles\              # IIS 访问日志（找后台路径、他人请求）
+C:\Windows\win.ini                     # Windows 版试金石（地位等同 /etc/passwd）
+C:\Windows\System32\drivers\etc\hosts  # 域名绑定表，摸清内网主机关系
+C:\Program Files\<app>\                # 应用安装目录，配置/日志/连接串常在此
+```
+
+要点：
+- `web.config` 里的 `machineKey`（validationKey/decryptionKey）是黄金钥匙——可离线伪造加密签名的 ViewState 直达 RCE，利用链见 [EXP-DotNet-Unserialize](./EXP-DotNet-Unserialize.md)
+- `SAM` 文件被系统占用且受权限保护，直接读通常失败；实战等拿到命令执行后走 `reg save HKLM\SAM sam.hive` 再离线解（读文件阶段先记下路径备用）
+- `<user>` 用户名不确定时，先靠报错差异探测 `C:\Users\` 下各目录的存在性，或从 IIS 日志、`web.config` 里的路径推断
+
+### Windows 相对路径穿越技巧
+
+```text
+..\..\..\..\windows\win.ini    # 反斜杠回溯：正斜杠被过滤/拦截时改用 \
+..\..\..\..\..\..\boot.ini    # 多层无害，给足层数防止跳不出根（老系统还可读 boot.ini）
+c:/windows/win.ini            # 盘符切换：正斜杠写绝对路径，绕过"必须相对路径"的拼接校验
+C:\Windows\win.ini            # 反斜杠绝对路径硬吃
+```
+
+- Windows 文件 API 同时接受 `\` 与 `/`：一种被 WAF/黑名单拦了就换另一种
+- 服务端把用户输入拼在固定目录后面时，`..\` 数量宁多勿少（多写几层最多停在盘符根，不会报错；少了跳不出目标目录）
+- 注意编码变体：`%5c`（`\`）、`%2e%2e%5c`（`..\`）、`..%255c`（双重编码）与前文通用技巧通用
+
 ## 进阶思路
 - 读源码 -> 审计出反序列化/SQLi -> 组合 RCE，是 CTF 与实战的标准链路
 - 读取数据库文件（SQLite）、`/proc/self/maps` 辅助进一步利用
 - 盲读场景：无回显时结合布尔差异（存在/不存在响应不同）或 OOB 外带
+
+## 无回显读文件外带
+
+场景：文件确实被读了（如下载接口只在后台预取、日志型盲场景），但响应不回显内容。此时把"读文件"当数据源，另找一条**外带信道**把内容送出来：
+
+1. **布尔差异盲读**（保底手段）：文件存在/不存在导致响应不同（状态码、长度、耗时），可先探测路径存在性；内容层面只能逐字节爆破，极慢，留作最后手段
+2. **与 XXE OOB 联动**：注入点若支持 XML，用外部实体 `file:///` 读文件 + 参数实体把内容拼进对攻击者域名的请求，从 DNS/HTTP 日志收数据，详见 [EXP-XXE](./EXP-XXE.md)
+3. **与 SSRF 联动**：SSRF 能控制请求的 URL 时，用 `file://`、`gopher://` 等协议读文件并经回调带出（部分环境还能借 `dict://`、内网回连探测），详见 [EXP-SSRF](./EXP-SSRF.md)
+
+DNS 外带细节：内容拼进子域名时**单个标签不超过 63 字符**，长内容需分段（首字符还要避开纯数字标签）；`curl`/`wget`、`ping`、代码里的任意 DNS 解析都能触发查询，攻击侧一条 `tcpdump` 或公网 DNSLOG 即可收割。
+
+> 一句话总结：无回显时优先找"二次外带通道"（DNS/HTTP 回连），读文件漏洞出数据，XXE/SSRF 当信道。
 
 ## 框架级案例
 

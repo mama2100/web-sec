@@ -1,3 +1,11 @@
+---
+title: 反弹/正向 Shell
+aliases: [反弹 Shell, 正向 Shell, TTY 升级, reverse shell]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Shell 建立与交互升级速查
 
 ## 0x01 概述

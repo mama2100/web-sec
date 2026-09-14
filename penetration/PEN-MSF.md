@@ -1,3 +1,11 @@
+---
+title: Metasploit 使用
+aliases: [Metasploit, MSF, meterpreter, 载荷生成]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Metasploit 与 Meterpreter 速查
 
 ## 0x01 概述

@@ -7,7 +7,7 @@
 ## 使用方式
 - 人工速查入口：优先从本页的目录和“高频速查入口”进入。
 - 专题正文入口：漏洞利用看 `./exp/`，原理理解看 `./vul/`，渗透流程看 `./penetration/`。
-- AI/Wiki 入口：优先阅读 [AI-WIKI 索引](./AI-WIKI.md)，里面补了主题映射、别名、检索关键词和推荐输出结构。
+- AI/Wiki 入口：优先阅读 [AI-WIKI 索引](./AI-WIKI.md)，里面补了主题映射、别名、检索关键词和推荐输出结构；AI 编码工具会自动读取 [AGENTS.md](./AGENTS.md)，机器可读文档清单见 [AI-MAP.json](./AI-MAP.json)。
 
 ## 高频速查入口
 - 前端基础：`跨域 / SOP / CSP / JSONP / DOM 污染` -> [跨域安全](./vul/VUL-CrossDomain.md)
@@ -54,7 +54,6 @@
   * [0x01 漏洞理解篇(Vulnerability)](#0x01-漏洞理解篇vulnerability)
     * [1.1 前端](#11-前端)
     * [1.2 后端](#12-后端)
-    * [1.3 打造自己的知识库](#13-打造自己的知识库)
   * [0x02 漏洞利用篇(Exploit)](#0x02-漏洞利用篇exploit)
     * [2.1 前端安全-XSS](#21-前端安全-xss)
     * [2.2 前端安全-CSRF](#22-前端安全-csrf)
@@ -151,9 +150,7 @@
 - [Web 密码学误用](./vul/VUL-Crypto.md)
 - [业务逻辑漏洞原理](./vul/VUL-Logic.md)
 
-### 1.3 打造自己的知识库
->爬取范围包括先知社区、安全客、Seebug Paper、跳跳糖、奇安信攻防社区、棱角社区
-- [**[Tool]** 推送安全情报爬虫@Le0nsec](https://github.com/Le0nsec/SecCrawler)
+
 
 ## 0x02 漏洞利用篇(Exploit)
 ### 2.1 前端安全-XSS
@@ -453,7 +450,7 @@
 - [Webshell 命令执行失败问题解决](./penetration/PEN-Webshell-Question.md)
 
 #### 4.4.3 PC & Server
-- [**[Tool]** Cobalt Strike ]()
+- [C2 框架速查（CobaltStrike/Sliver/MSF）](./penetration/PEN-C2.md)
 - [Cobalt Strike资料汇总@zer0yu](https://github.com/zer0yu/Awesome-CobaltStrike)
 #### 4.4.4 Mobile (Android & ios)  
 ### 4.5 免杀

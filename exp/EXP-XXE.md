@@ -1,3 +1,11 @@
+---
+title: XXE XML 外部实体注入
+aliases: [XML External Entity, 外部实体注入, XEE, OOB]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # EXP手册-XXE Injection(XML External Entity Injection)
 
 ## 一句话理解

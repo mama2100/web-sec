@@ -1,3 +1,11 @@
+---
+title: SQL 注入（MySQL）
+aliases: [SQL injection, MySQL 注入, 盲注, 报错注入, union 注入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # EXP手册-SQL injection(MySQL)
 
 ## 一句话理解

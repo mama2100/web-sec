@@ -1,3 +1,11 @@
+---
+title: Windows 提权
+aliases: [Windows 提权, Potato, UAC Bypass, 内核提权, 服务提权]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Windows 提权速记
 
 ## 0x01 概述

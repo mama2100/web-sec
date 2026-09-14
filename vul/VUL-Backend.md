@@ -1,3 +1,11 @@
+---
+title: 后端逻辑与安全
+aliases: [后端安全, 应用分层, 漏洞分类, 信任边界]
+category: vul
+status: current
+updated: 2026-07
+---
+
 # 错综复杂的后端逻辑及安全
 
 ## 0x00 前言

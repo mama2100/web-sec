@@ -1,3 +1,11 @@
+---
+title: XPath 注入
+aliases: [XPath Injection, XML 路径注入, 认证绕过, 布尔盲注]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # XPath注入
 
 ## 一句话理解

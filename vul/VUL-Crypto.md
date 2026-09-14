@@ -1,3 +1,11 @@
+---
+title: Web 密码学误用
+aliases: [密码学误用, ECB, Padding Oracle, 弱随机, 哈希长度扩展]
+category: vul
+status: current
+updated: 2026-07
+---
+
 # Web 密码学误用（原理篇）
 
 ## 定位

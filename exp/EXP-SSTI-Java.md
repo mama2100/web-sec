@@ -1,3 +1,11 @@
+---
+title: SSTI 服务端模板注入（Java）
+aliases: [Freemarker, Velocity, Thymeleaf, Pebble, Java 模板注入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Java 模板注入（Freemarker / Velocity / Thymeleaf / Pebble）
 
 ## 一句话理解

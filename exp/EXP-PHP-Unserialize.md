@@ -1,3 +1,11 @@
+---
+title: PHP 反序列化漏洞
+aliases: [PHP 反序列化, POP 链, 魔术方法, phar]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 反序列漏洞-PHP
 
 ## 一句话理解

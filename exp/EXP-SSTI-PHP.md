@@ -1,3 +1,11 @@
+---
+title: SSTI 服务端模板注入（PHP）
+aliases: [Smarty, Twig, Blade, PHP 模板注入]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # PHP 模板注入
 
 ## 一句话理解

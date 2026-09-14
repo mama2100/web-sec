@@ -1,3 +1,11 @@
+---
+title: OGNL 表达式注入
+aliases: [OGNL, Struts2, Confluence, S2-045]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # OGNL表达式注入
 
 ## 一句话理解

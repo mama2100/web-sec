@@ -1,0 +1,30 @@
+name: knowledge-base-consistency
+
+# 知识库防漂移检查：文档与 AI-MAP.json / 索引链接的一致性
+# 本地等价命令: python scripts/check-consistency.py
+
+on:
+  push:
+    paths:
+      - "**.md"
+      - "AI-MAP.json"
+      - "scripts/check-consistency.py"
+  pull_request:
+    paths:
+      - "**.md"
+      - "AI-MAP.json"
+      - "scripts/check-consistency.py"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run consistency check
+        run: python scripts/check-consistency.py

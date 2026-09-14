@@ -1,3 +1,11 @@
+---
+title: AI/Wiki 知识库索引
+aliases: [AI 索引, 主题映射, 知识库入口]
+category: index
+status: current
+updated: 2026-07
+---
+
 # AI / Wiki 索引
 
 ## 目标
@@ -57,7 +65,7 @@
 | 阶段 | 目标 | 入口文档 |
 | --- | --- | --- |
 | 网络预置 | 代理、路由、信息收集 | `./penetration/PEN-Openwrt.md` `./penetration/PEN-Tun2socks.md` `./penetration/PEN-Info.md` |
-| 网络接入 | 扫描、漏洞验证、1day | `./penetration/PEN-Scanner.md` |
+| 网络接入 | 扫描、漏洞验证、1day | `./penetration/PEN-Scanner.md` `./exp/EXP-Vul-Index.md` |
 | 权限获取 | 凭证、落地、提权 | `./penetration/PEN-GetHash.md` `./penetration/PEN-GetHash-Linux.md` `./penetration/PEN-Linux-LPE.md` `./penetration/PEN-Win-LPE.md` |
 | 权限维持 | Shell、WebShell、MSF | `./penetration/PEN-ReShell.md` `./penetration/PEN-Webshell-Question.md` `./penetration/PEN-MSF.md` |
 | 隧道代理 | TCP、HTTP、DNS、ICMP | `./penetration/PEN-ssh.md` `./penetration/PEN-Reuse.md` `./penetration/PEN-Tunnel.md` |

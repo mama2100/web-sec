@@ -1,3 +1,11 @@
+---
+title: Linux 痕迹清理
+aliases: [Linux 痕迹清理, 日志清理, journal, auditd, logtamper]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Linux 痕迹清理
 
 ## 0x00 概述

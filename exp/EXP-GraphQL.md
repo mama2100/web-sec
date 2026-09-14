@@ -1,3 +1,11 @@
+---
+title: GraphQL 安全
+aliases: [GraphQL, 内省, introspection, mutation 越权, alias 批量]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # GraphQL 安全
 
 ## 一句话理解

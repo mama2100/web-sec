@@ -1,3 +1,11 @@
+---
+title: Linux SUID 提权
+aliases: [SUID 提权, setuid, find 提权]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Linux setuid 提权
 
 ## 0x00 概述

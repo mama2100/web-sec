@@ -1,3 +1,11 @@
+---
+title: CSRF 跨站请求伪造
+aliases: [Cross-site Request Forgery, 跨站请求伪造, 登录 CSRF, XSRF]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 前端安全-CSRF
 
 ## 一句话理解

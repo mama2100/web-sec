@@ -1,3 +1,11 @@
+---
+title: C2 框架速查
+aliases: [C2 框架, CobaltStrike, Sliver, CS]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # C2 框架速查（CobaltStrike / Sliver / MSF）
 
 ## 0x01 概述

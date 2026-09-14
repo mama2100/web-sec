@@ -1,3 +1,11 @@
+---
+title: Windows 凭证获取
+aliases: [Windows 凭证, mimikatz, NTLM Hash, ntdsutil, LSASS]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Windows Hash 与明文凭证获取
 
 ## 0x00 概述

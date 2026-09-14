@@ -1,3 +1,11 @@
+---
+title: SQL 注入（Oracle）
+aliases: [Oracle 注入, utl_http, 报错注入, 信息外带]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # SQL 注入 Oracle
 
 ## 一句话理解

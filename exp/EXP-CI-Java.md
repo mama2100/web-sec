@@ -1,3 +1,11 @@
+---
+title: 命令注入与代码执行（Java）
+aliases: [Runtime.exec, ProcessBuilder, Java RCE, 代码执行]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 命令注入&代码执行-Java
 
 ## 一句话理解

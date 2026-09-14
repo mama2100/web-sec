@@ -1,3 +1,11 @@
+---
+title: tun2socks 全局代理
+aliases: [tun2socks, 全局代理, 虚拟网卡]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Windows 下使用 tun2socks 接管流量
 
 ## 0x01 概述

@@ -1,3 +1,11 @@
+---
+title: SSTI 服务端模板注入（Python）
+aliases: [Jinja2, Tornado, Python 模板注入, 沙箱逃逸]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # EXP手册-服务端模板注入（SSTI）
 
 ## 一句话理解

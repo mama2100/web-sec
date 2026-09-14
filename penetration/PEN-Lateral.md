@@ -1,3 +1,11 @@
+---
+title: 内网横向移动
+aliases: [横向移动, impacket, PsExec, WMI, WinRM, RDP]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Windows 内网横向移动
 
 ## 0x01 概述

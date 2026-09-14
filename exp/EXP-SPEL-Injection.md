@@ -1,3 +1,11 @@
+---
+title: SpEL 表达式注入
+aliases: [SpEL, Spring 表达式注入, Spring4Shell]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # Spring表达式(SPEL)注入
 
 ## 一句话理解

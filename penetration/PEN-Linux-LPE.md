@@ -1,3 +1,11 @@
+---
+title: Linux 提权
+aliases: [Linux 提权, DirtyCow, DirtyPipe, PwnKit, LinPEAS]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Linux 本地提权速记
 
 ## 0x01 概述

@@ -1,3 +1,11 @@
+---
+title: Linux 凭证获取
+aliases: [Linux 凭证, shadow, SSH 私钥, 内存凭证]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Linux 认证凭证获取
 
 ## 0x00 概述

@@ -1,3 +1,11 @@
+---
+title: 文件上传漏洞
+aliases: [File Upload, 上传绕过, 解析漏洞, WebShell 上传, MIME 绕过]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 文件上传漏洞
 
 ## 一句话理解

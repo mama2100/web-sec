@@ -1,3 +1,11 @@
+---
+title: 信息泄露
+aliases: [信息泄露, .git 泄露, swagger, heapdump, 备份文件]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 信息泄露
 
 ## 一句话理解

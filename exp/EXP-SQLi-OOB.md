@@ -1,3 +1,11 @@
+---
+title: SQL 注入信息外带（OOB）
+aliases: [OOB, 信息外带, 带外注入, dnslog]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # SQL 注入信息外带（OOB）
 
 ## 一句话理解

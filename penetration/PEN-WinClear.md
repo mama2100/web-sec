@@ -1,3 +1,11 @@
+---
+title: Windows 痕迹清理
+aliases: [Windows 痕迹清理, 事件日志, USN Journal, RDP 痕迹]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # Windows 痕迹清理
 
 ## 0x01 概述

@@ -1,3 +1,11 @@
+---
+title: JWT 攻击
+aliases: [JWT 攻击, alg=none, 算法混淆, kid 注入, 弱密钥]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # JWT 攻击
 
 ## 一句话理解

@@ -1,3 +1,11 @@
+---
+title: SSTI 服务端模板注入（总述）
+aliases: [Server-side Template Injection, 模板注入, 模板逃逸, 沙箱逃逸]
+category: exp
+status: current
+updated: 2026-07
+---
+
 # 模板注入 Server Side Template Injection (SSTI)
 
 ## 一句话理解

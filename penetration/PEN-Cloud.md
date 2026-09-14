@@ -1,3 +1,11 @@
+---
+title: 云上攻防
+aliases: [云上攻防, AKSK, 云元数据, 对象存储, K8s 攻击面]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # 云上攻防速查
 
 ## 0x01 概述

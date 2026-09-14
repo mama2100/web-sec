@@ -1,3 +1,11 @@
+---
+title: Webshell 命令执行排障
+aliases: [Webshell 排障, 命令执行失败, disable_functions 绕过]
+category: penetration
+status: current
+updated: 2026-07
+---
+
 # WebShell 命令执行异常排查
 
 ## 0x01 概述
